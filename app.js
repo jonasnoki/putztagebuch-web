@@ -840,6 +840,7 @@ function notifyPanel() {
       return;
     }
     const sub = Notification.permission === 'granted' ? await current() : null;
+    pushOn = !!sub;
     const btn = h('button', { type: 'button', class: sub ? 'btn block' : 'btn primary block', disabled: !S.online }, sub ? 'Push auf diesem Gerät ausschalten' : 'Push auf diesem Gerät einschalten');
     btn.onclick = async () => {
       btn.disabled = true;
@@ -941,6 +942,8 @@ function viewSettings() {
 
 // ------------------------------------------------------------------ boot
 
+let pushOn = false; // this browser has a push subscription
+
 /** Tell about what others did since `before`: a toast, and a system
  *  notification when the app is in the background and the user allowed it. */
 function announce(before) {
@@ -957,7 +960,8 @@ function announce(before) {
   }
   if (!msgs.length) return;
   toast(msgs.length === 1 ? msgs[0] : `${msgs[0]} (+${msgs.length - 1})`, { long: true });
-  if (document.visibilityState === 'hidden' && 'Notification' in window && Notification.permission === 'granted') {
+  // With push on, the push already notifies this device; don't show it twice.
+  if (!pushOn && document.visibilityState === 'hidden' && 'Notification' in window && Notification.permission === 'granted') {
     const body = msgs.join('\n');
     navigator.serviceWorker.ready
       .then((reg) => reg.showNotification('Putztagebuch', { body, icon: 'icons/icon-192.png', tag: 'putz-live' }))
@@ -1012,6 +1016,7 @@ async function resavePush() {
   try {
     if (!('serviceWorker' in navigator) || !('PushManager' in window) || Notification.permission !== 'granted') return;
     const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
+    pushOn = !!sub;
     if (sub) await Backend.savePushSubscription(sub);
   } catch (e) { /* offline: next start */ }
 }
