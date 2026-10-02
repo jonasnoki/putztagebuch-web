@@ -210,6 +210,16 @@ const Backend = {
     });
   },
 
+  /** What this device wants to hear about: { notify_tasks, notify_shop }. */
+  async getPushPrefs(endpoint) {
+    const rows = await this.request('/rest/v1/push_subscriptions?select=notify_tasks,notify_shop&endpoint=eq.' + encodeURIComponent(endpoint));
+    return rows[0] || null;
+  },
+
+  async setPushPrefs(endpoint, prefs) {
+    await this.request('/rest/v1/push_subscriptions?endpoint=eq.' + encodeURIComponent(endpoint), { method: 'PATCH', body: prefs });
+  },
+
   async deletePushSubscription(endpoint) {
     await this.request('/rest/v1/push_subscriptions?endpoint=eq.' + encodeURIComponent(endpoint), { method: 'DELETE' });
   },

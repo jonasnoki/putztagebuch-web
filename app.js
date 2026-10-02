@@ -964,10 +964,30 @@ function notifyPanel() {
       }
       draw();
     };
+    if (!sub) {
+      box.replaceChildren(
+        h('p', { class: 'muted small' }, 'Bekomm eine Nachricht, wenn jemand anderes im Haushalt etwas erledigt, beitritt oder den Einkaufszettel ändert, auch wenn die App zu ist.'),
+        btn);
+      return;
+    }
+    // Per device: which kinds of news.
+    let prefs = { notify_tasks: true, notify_shop: true };
+    try { prefs = (await Backend.getPushPrefs(sub.endpoint)) || prefs; } catch (e) { /* offline: show defaults */ }
+    const toggle = (key, label, hint) => h('label', { class: 'switch-row' },
+      h('span', { class: 'grow' }, h('span', { class: 'who' }, label), h('span', { class: 'small muted block' }, hint)),
+      h('input', { type: 'checkbox', class: 'switch', checked: prefs[key], disabled: !S.online, onchange: async (e) => {
+        try {
+          await Backend.setPushPrefs(sub.endpoint, { [key]: e.target.checked });
+          prefs[key] = e.target.checked;
+        } catch (ex) {
+          e.target.checked = prefs[key];
+          toast(ex.status ? ex.message : 'Braucht eine Verbindung');
+        }
+      } }));
     box.replaceChildren(
-      h('p', { class: 'muted small' }, sub
-        ? 'An. Du bekommst eine Nachricht, wenn jemand anderes im Haushalt etwas erledigt oder beitritt, auch wenn die App zu ist.'
-        : 'Bekomm eine Nachricht, wenn jemand anderes im Haushalt etwas erledigt oder beitritt, auch wenn die App zu ist.'),
+      h('div', { class: 'panel switches' },
+        toggle('notify_tasks', 'Aufgaben', 'Wenn jemand etwas erledigt oder dem Haushalt beitritt'),
+        toggle('notify_shop', 'Einkaufszettel', 'Gesammelt, wenn 5 Minuten lang niemand mehr etwas geändert hat')),
       btn);
   }
   draw();
