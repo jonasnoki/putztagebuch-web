@@ -210,9 +210,9 @@ const Backend = {
     });
   },
 
-  /** What this device wants to hear about: { notify_tasks, notify_shop }. */
+  /** What this device wants to hear about: { notify_tasks, notify_shop_add, notify_shop_done }. */
   async getPushPrefs(endpoint) {
-    const rows = await this.request('/rest/v1/push_subscriptions?select=notify_tasks,notify_shop&endpoint=eq.' + encodeURIComponent(endpoint));
+    const rows = await this.request('/rest/v1/push_subscriptions?select=notify_tasks,notify_shop_add,notify_shop_done&endpoint=eq.' + encodeURIComponent(endpoint));
     return rows[0] || null;
   },
 

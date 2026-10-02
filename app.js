@@ -971,7 +971,7 @@ function notifyPanel() {
       return;
     }
     // Per device: which kinds of news.
-    let prefs = { notify_tasks: true, notify_shop: true };
+    let prefs = { notify_tasks: true, notify_shop_add: true, notify_shop_done: true };
     try { prefs = (await Backend.getPushPrefs(sub.endpoint)) || prefs; } catch (e) { /* offline: show defaults */ }
     const toggle = (key, label, hint) => h('label', { class: 'switch-row' },
       h('span', { class: 'grow' }, h('span', { class: 'who' }, label), h('span', { class: 'small muted block' }, hint)),
@@ -987,7 +987,9 @@ function notifyPanel() {
     box.replaceChildren(
       h('div', { class: 'panel switches' },
         toggle('notify_tasks', 'Aufgaben', 'Wenn jemand etwas erledigt oder dem Haushalt beitritt'),
-        toggle('notify_shop', 'Einkaufszettel', 'Gesammelt, wenn 5 Minuten lang niemand mehr etwas geändert hat')),
+        toggle('notify_shop_add', 'Einkauf: neue Sachen', 'Wenn jemand etwas auf den Einkaufszettel setzt'),
+        toggle('notify_shop_done', 'Einkauf: eingekauft', 'Wenn jemand etwas abhakt'),
+        h('p', { class: 'small muted' }, 'Einkauf kommt gesammelt, wenn 5 Minuten lang niemand mehr etwas am Zettel geändert hat.')),
       btn);
   }
   draw();
