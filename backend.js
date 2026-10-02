@@ -174,7 +174,7 @@ const Backend = {
   // ---- shopping list (household)
 
   async listShopping() {
-    return this.request('/rest/v1/shopping_items?select=id,text,done,created_at,done_at&order=created_at');
+    return this.request('/rest/v1/shopping_items?select=id,text,done,created_at,done_at,created_by,done_by&order=created_at');
   },
 
   async addShopping(text) {

@@ -972,13 +972,14 @@ function notifyPanel() {
     }
     // Per device: which kinds of news.
     let prefs = { notify_tasks: true, notify_shop_add: true, notify_shop_done: true };
-    try { prefs = (await Backend.getPushPrefs(sub.endpoint)) || prefs; } catch (e) { /* offline: show defaults */ }
+    try { prefs = (await Backend.getPushPrefs(sub.endpoint)) || prefs; setNewsPrefs(prefs); } catch (e) { /* offline: show defaults */ }
     const toggle = (key, label, hint) => h('label', { class: 'switch-row' },
       h('span', { class: 'grow' }, h('span', { class: 'who' }, label), h('span', { class: 'small muted block' }, hint)),
       h('input', { type: 'checkbox', class: 'switch', checked: prefs[key], disabled: !S.online, onchange: async (e) => {
         try {
           await Backend.setPushPrefs(sub.endpoint, { [key]: e.target.checked });
           prefs[key] = e.target.checked;
+          setNewsPrefs({ [key]: e.target.checked });
         } catch (ex) {
           e.target.checked = prefs[key];
           toast(ex.status ? ex.message : 'Braucht eine Verbindung');
@@ -1067,29 +1068,78 @@ function viewSettings() {
 
 // ------------------------------------------------------------------ boot
 
-/** Tell about what others did since `before`, as a toast in the open app.
- *  System notifications come only as push (no duplicates). */
+/** Per-device news choices (from the push settings; all on by default). */
+let newsPrefs = store.get('pt.newsPrefs', { notify_tasks: true, notify_shop_add: true, notify_shop_done: true });
+function setNewsPrefs(p) { newsPrefs = { ...newsPrefs, ...p }; store.set('pt.newsPrefs', newsPrefs); }
+
+const listDe = (xs) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} und ${xs[xs.length - 1]}`);
+
+/** Same wording as the push: one title, details in the body when there is more. */
+function newsMessage(events) {
+  const groups = new Map();
+  for (const e of events) {
+    const key = `${e.kind}|${e.who}`;
+    const g = groups.get(key) || { who: e.who, kind: e.kind, what: [] };
+    if (e.what && !g.what.includes(e.what)) g.what.push(e.what);
+    groups.set(key, g);
+  }
+  const sentence = (g, short) => {
+    const n = g.what.length;
+    if (g.kind === 'join') return `${g.who} ist dem Haushalt beigetreten`;
+    if (g.kind === 'entry') return short && n > 1 ? `${g.who} hat ${n} Aufgaben erledigt` : `${g.who} hat ${listDe(g.what)} erledigt`;
+    if (g.kind === 'shop_add') return short && n > 1 ? `${g.who} hat ${n} Sachen auf den Einkaufszettel gesetzt` : `${g.who} hat ${listDe(g.what)} auf den Einkaufszettel gesetzt`;
+    return short && n > 1 ? `${g.who} hat ${n} Sachen eingekauft` : `${g.who} hat ${listDe(g.what)} eingekauft`;
+  };
+  const all = [...groups.values()];
+  if (all.length === 1) {
+    const g = all[0];
+    return g.what.length <= 1 ? { title: sentence(g, false), body: '' } : { title: sentence(g, true), body: listDe(g.what) };
+  }
+  const shopOnly = all.every((g) => g.kind.startsWith('shop'));
+  return { title: shopOnly ? 'Neues auf dem Einkaufszettel' : 'Neues im Haushalt', body: all.map((g) => sentence(g, false)).join('\n') };
+}
+
+/** In-app notification card at the top; tap opens the place, × or time closes it. */
+function notice({ title, body }, href) {
+  let box = document.getElementById('notices');
+  if (!box) { box = h('div', { id: 'notices', class: 'notices', 'aria-live': 'polite' }); document.body.append(box); }
+  const close = () => { card.classList.add('out'); setTimeout(() => card.remove(), 250); };
+  const card = h('div', { class: 'notice', role: 'status' },
+    h('img', { src: 'icons/icon-192.png', alt: '', class: 'notice-icon' }),
+    h('button', { type: 'button', class: 'notice-text', onclick: () => { close(); if (href) location.hash = href; } },
+      h('span', { class: 'notice-title' }, title),
+      body ? h('span', { class: 'notice-body' }, body) : null),
+    h('button', { type: 'button', class: 'notice-x', 'aria-label': 'Schließen', onclick: close }, '×'));
+  box.prepend(card);
+  while (box.children.length > 3) box.lastChild.remove();
+  setTimeout(close, 7000);
+}
+
+/** What others did since `before`: in-app cards, filtered by the device's switches.
+ *  (Push covers the closed app; iOS shows no push banner while the app is open.) */
 function announce(before) {
   if (!S.home || S.home.home.id !== before.home) return;
   const me = Backend.userId();
-  // Same sentences as the push: one per person, tasks listed together.
-  const done = new Map();
-  const msgs = [];
-  for (const e of S.entries) {
-    if (e.deleted || e.uid === me || before.entries.has(`${e.uid}/${e.id}`)) continue;
-    if (nowSec() - e.at > 3600) continue; // back-dated entries are no news
-    const who = e.by || 'Jemand';
-    const tasks = done.get(who) || [];
-    if (!tasks.includes(e.task)) tasks.push(e.task);
-    done.set(who, tasks);
+  const nameOf = (uid) => (S.home.members.find((m) => m.user_id === uid) || {}).name || 'Jemand';
+  const tasks = [];
+  const shop = [];
+  if (newsPrefs.notify_tasks) {
+    for (const e of S.entries) {
+      if (e.deleted || e.uid === me || before.entries.has(`${e.uid}/${e.id}`)) continue;
+      if (nowSec() - e.at > 3600) continue; // back-dated entries are no news
+      tasks.push({ kind: 'entry', who: e.by || 'Jemand', what: e.task });
+    }
+    for (const m of S.home.members) {
+      if (m.user_id !== me && !before.members.has(m.user_id)) tasks.push({ kind: 'join', who: m.name });
+    }
   }
-  const list = (xs) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} und ${xs[xs.length - 1]}`);
-  for (const [who, tasks] of done) msgs.push(`${who} hat ${list(tasks)} erledigt`);
-  for (const m of S.home.members) {
-    if (m.user_id !== me && !before.members.has(m.user_id)) msgs.push(`${m.name} ist dem Haushalt beigetreten`);
+  for (const it of S.shopping) {
+    const was = before.shopping.get(it.id);
+    if (!was && it.created_by && it.created_by !== me && newsPrefs.notify_shop_add) shop.push({ kind: 'shop_add', who: nameOf(it.created_by), what: it.text });
+    if (it.done && was && !was.done && it.done_by && it.done_by !== me && newsPrefs.notify_shop_done) shop.push({ kind: 'shop_done', who: nameOf(it.done_by), what: it.text });
   }
-  if (!msgs.length) return;
-  toast(msgs.join(' · '), { long: true });
+  if (tasks.length) notice(newsMessage(tasks), '#/history');
+  if (shop.length) notice(newsMessage(shop), '#/shop');
 }
 
 // Live updates: another member or a watch changed something. Refetch (small
@@ -1108,7 +1158,12 @@ function startLive() {
   stopLive = Backend.live(() => {
     clearTimeout(liveTimer);
     liveTimer = setTimeout(async () => {
-      const before = { entries: new Set(S.entries.map((e) => `${e.uid}/${e.id}`)), members: new Set(S.home ? S.home.members.map((m) => m.user_id) : []), home: S.home && S.home.home.id };
+      const before = {
+        entries: new Set(S.entries.map((e) => `${e.uid}/${e.id}`)),
+        members: new Set(S.home ? S.home.members.map((m) => m.user_id) : []),
+        shopping: new Map(S.shopping.map((x) => [x.id, { done: x.done }])),
+        home: S.home && S.home.home.id,
+      };
       await refresh();
       rerender();
       announce(before);
@@ -1146,7 +1201,11 @@ async function resavePush() {
   try {
     if (!('serviceWorker' in navigator) || !('PushManager' in window) || Notification.permission !== 'granted') return;
     const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
-    if (sub) await Backend.savePushSubscription(sub);
+    if (sub) {
+      await Backend.savePushSubscription(sub);
+      const p = await Backend.getPushPrefs(sub.endpoint);
+      if (p) setNewsPrefs(p);
+    }
   } catch (e) { /* offline: next start */ }
 }
 
