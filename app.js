@@ -223,6 +223,7 @@ function render() {
     case 'entry': content = viewEdit(Number(r.arg)); break;
     case 'new': content = viewEdit(null, r.arg ? decodeURIComponent(r.arg) : null); break;
     case 'history': content = viewHistory(); break;
+    case 'board': content = viewBoard(r.arg); break;
     case 'settings': content = viewSettings(); break;
     default: content = viewLog();
   }
@@ -610,6 +611,58 @@ function viewHistory() {
     all);
 }
 
+// ------------------------------------------------------------------ leaderboard
+
+const PERIODS = [
+  { key: 'week', label: 'Diese Woche' },
+  { key: 'month', label: 'Dieser Monat' },
+  { key: 'all', label: 'Gesamt' },
+];
+
+function periodStart(key) {
+  if (key === 'week') return weekStart(nowSec());
+  if (key === 'month') { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(1); return Math.floor(d.getTime() / 1000); }
+  return 0;
+}
+
+/** Members ranked by tasks done in the period; members with none are listed too. */
+function viewBoard(period) {
+  const key = PERIODS.some((p) => p.key === period) ? period : 'week';
+  const since = periodStart(key);
+  const done = visibleEntries().filter((e) => e.at >= since);
+  const people = new Map();
+  for (const m of (S.home ? S.home.members : [])) people.set(m.user_id, { name: m.name, n: 0, tasks: {} });
+  for (const e of done) {
+    const id = e.uid || e.by || '?';
+    if (!people.has(id)) people.set(id, { name: e.by || '?', n: 0, tasks: {} });
+    const p = people.get(id);
+    p.n++;
+    p.tasks[e.task] = (p.tasks[e.task] || 0) + 1;
+  }
+  const rows = [...people.values()].sort((a, b) => b.n - a.n || a.name.localeCompare(b.name));
+  const max = Math.max(1, ...rows.map((r) => r.n));
+  const me = myName();
+
+  let rank = 0, prev = null;
+  const list = h('ol', { class: 'board' }, rows.map((r, i) => {
+    if (r.n !== prev) { rank = i + 1; prev = r.n; }
+    const top = Object.entries(r.tasks).sort((a, b) => b[1] - a[1]).slice(0, 3);
+    return h('li', { class: 'board-row' + (r.name === me ? ' me' : '') },
+      h('span', { class: 'rank num' + (rank === 1 && r.n > 0 ? ' first' : '') }, rank === 1 && r.n > 0 ? '🏆' : `${rank}.`),
+      h('div', { class: 'grow' },
+        h('div', { class: 'row spread' }, h('span', { class: 'who' }, r.name), h('span', { class: 'num count' }, r.n)),
+        h('div', { class: 'track' }, h('span', { class: 'fill', style: `width:${(r.n / max) * 100}%` })),
+        top.length ? h('div', { class: 'small muted' }, top.map(([t, n]) => `${t} ${n}×`).join(' · ')) : null));
+  }));
+
+  return h('div', { class: 'narrow' },
+    h('h1', {}, 'Rangliste'),
+    h('div', { class: 'seg', role: 'tablist' }, PERIODS.map((p) =>
+      h('a', { href: `#/board/${p.key}`, role: 'tab', 'aria-selected': String(p.key === key), class: p.key === key ? 'on' : '' }, p.label))),
+    done.length ? list : h('div', { class: 'empty' }, 'In diesem Zeitraum hat noch niemand geputzt.'),
+    done.length ? h('p', { class: 'hint' }, `${done.length} erledigte Aufgaben insgesamt. Jede Aufgabe zählt einmal.`) : null);
+}
+
 // ------------------------------------------------------------------ settings
 
 /** Task list: name and optional description. */
@@ -767,7 +820,15 @@ function viewSettings() {
 async function boot() {
   Backend.takeSessionFromUrl();
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(() => { /* e.g. file:// or private mode */ });
+    // A new version takes over (sw.js skipWaiting + claim): reload once to run it,
+    // unless a form is open. Not on the first install, when nothing controlled the page.
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hadController && !dirty) location.reload();
+    });
+    navigator.serviceWorker.register('sw.js')
+      .then((reg) => reg.update())
+      .catch(() => { /* e.g. file:// or private mode */ });
   }
   render();
   if (Backend.signedIn()) {
