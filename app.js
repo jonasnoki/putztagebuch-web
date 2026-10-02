@@ -1043,17 +1043,24 @@ let pushOn = false; // this browser has a push subscription
 function announce(before) {
   if (!S.home || S.home.home.id !== before.home) return;
   const me = Backend.userId();
+  // Same sentences as the push: one per person, tasks listed together.
+  const done = new Map();
   const msgs = [];
   for (const e of S.entries) {
     if (e.deleted || e.uid === me || before.entries.has(`${e.uid}/${e.id}`)) continue;
     if (nowSec() - e.at > 3600) continue; // back-dated entries are no news
-    msgs.push(`${e.by || 'Jemand'} hat ${e.task} erledigt`);
+    const who = e.by || 'Jemand';
+    const tasks = done.get(who) || [];
+    if (!tasks.includes(e.task)) tasks.push(e.task);
+    done.set(who, tasks);
   }
+  const list = (xs) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} und ${xs[xs.length - 1]}`);
+  for (const [who, tasks] of done) msgs.push(`${who} hat ${list(tasks)} erledigt`);
   for (const m of S.home.members) {
     if (m.user_id !== me && !before.members.has(m.user_id)) msgs.push(`${m.name} ist dem Haushalt beigetreten`);
   }
   if (!msgs.length) return;
-  toast(msgs.length === 1 ? msgs[0] : `${msgs[0]} (+${msgs.length - 1})`, { long: true });
+  toast(msgs.join(' · '), { long: true });
   // With push on, the push already notifies this device; don't show it twice.
   if (!pushOn && document.visibilityState === 'hidden' && 'Notification' in window && Notification.permission === 'granted') {
     const body = msgs.join('\n');
