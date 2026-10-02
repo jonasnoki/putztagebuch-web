@@ -158,6 +158,10 @@ const Backend = {
     return this.request('/rest/v1/rpc/join_home', { method: 'POST', body: { p_code: code, p_name: name } });
   },
 
+  async createHome(slug, name) {
+    return this.request('/rest/v1/rpc/create_home', { method: 'POST', body: { p_slug: slug, p_name: name } });
+  },
+
   async putHomeData(id, data) {
     const rows = await this.request('/rest/v1/homes?id=eq.' + encodeURIComponent(id), {
       method: 'PATCH',
@@ -165,6 +169,53 @@ const Backend = {
       body: { data },
     });
     return rows[0];
+  },
+
+  // ---- live updates: Supabase Realtime over a WebSocket (Phoenix protocol, vsn 1.0.0)
+
+  /** Calls onChange() whenever a readable row of entries/homes/home_members changes,
+   *  and once after each (re)connect. Reconnects with backoff. Returns stop(). */
+  live(onChange) {
+    let ws = null, ref = 0, beat = null, retry = 1000, stopped = false, topic = 'realtime:putz';
+    const send = (msg) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ ...msg, ref: String(++ref) })); };
+    const connect = async () => {
+      if (stopped || !this.signedIn()) return;
+      try { await this.freshToken(); } catch (e) { setTimeout(connect, retry); return; }
+      const url = PT.url.replace(/^http/, 'ws') + '/realtime/v1/websocket?apikey=' + encodeURIComponent(PT.key) + '&vsn=1.0.0';
+      ws = new WebSocket(url);
+      ws.onopen = () => {
+        retry = 1000;
+        send({ topic, event: 'phx_join', payload: {
+          config: { broadcast: { self: false }, presence: { key: '' }, postgres_changes: ['entries', 'homes', 'home_members'].map((table) => ({ event: '*', schema: 'public', table })) },
+          access_token: this.session.access_token,
+        } });
+        beat = setInterval(async () => {
+          send({ topic: 'phoenix', event: 'heartbeat', payload: {} });
+          // Keep the socket's token fresh; RLS checks run with it.
+          try {
+            const before = this.session.access_token;
+            await this.freshToken();
+            if (this.session.access_token !== before) send({ topic, event: 'access_token', payload: { access_token: this.session.access_token } });
+          } catch (e) { /* signed out: the close handler stops */ }
+        }, 25000);
+      };
+      ws.onmessage = (ev) => {
+        let m;
+        try { m = JSON.parse(ev.data); } catch (e) { return; }
+        if (m.topic !== topic) return;
+        if (m.event === 'phx_reply' && m.payload && m.payload.status === 'ok' && m.payload.response && m.payload.response.postgres_changes) onChange('joined');
+        else if (m.event === 'postgres_changes') onChange('change');
+      };
+      ws.onclose = () => {
+        clearInterval(beat);
+        ws = null;
+        if (stopped) return;
+        setTimeout(connect, retry);
+        retry = Math.min(retry * 2, 30000);
+      };
+    };
+    connect();
+    return () => { stopped = true; clearInterval(beat); if (ws) ws.close(); };
   },
 
   // ---- devices (watches): the code is shown once, only its hash is stored

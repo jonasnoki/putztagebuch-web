@@ -93,16 +93,16 @@ function fmtAgo(sec) {
 }
 
 let toastTimer;
-/** Short message; with an action (e.g. undo) it stays a little longer. */
+/** Short message; with an action (e.g. undo) or { long: true } it stays longer. */
 function toast(msg, action) {
   const el = document.getElementById('toast');
   el.replaceChildren(msg);
-  if (action) {
+  if (action && action.label) {
     el.append(h('button', { type: 'button', onclick: () => { el.hidden = true; action.run(); } }, action.label));
   }
   el.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.hidden = true; }, action ? 6000 : 2600);
+  toastTimer = setTimeout(() => { el.hidden = true; }, action ? 5000 : 2600);
 }
 
 // ------------------------------------------------------------------ state + API
@@ -199,11 +199,13 @@ function route() {
 }
 
 let dirty = false; // unsaved edit form
-function render() {
+/** Draws the current route. keepScroll: a live update, not a page change. */
+function render({ keepScroll = false } = {}) {
   const view = document.getElementById('view');
   const tabs = document.getElementById('tabs');
   const r = route();
-  window.scrollTo(0, 0);
+  const y = window.scrollY;
+  if (!keepScroll) window.scrollTo(0, 0);
   dirty = false;
   if (!Backend.signedIn() || r.name === 'setup') {
     tabs.hidden = true;
@@ -224,10 +226,12 @@ function render() {
     case 'new': content = viewEdit(null, r.arg ? decodeURIComponent(r.arg) : null); break;
     case 'history': content = viewHistory(); break;
     case 'board': content = viewBoard(r.arg); break;
+    case 'join': tabs.hidden = true; content = viewJoin(); break;
     case 'settings': content = viewSettings(); break;
     default: content = viewLog();
   }
   view.replaceChildren(content);
+  if (keepScroll) window.scrollTo(0, y);
 }
 
 window.addEventListener('hashchange', render);
@@ -273,6 +277,7 @@ function viewSetup() {
   async function signedIn() {
     status.textContent = '';
     await refresh();
+    startLive();
     location.hash = mode === 'code' ? '#/settings' : '#/log';
     render();
     if (mode === 'code') toast('Angemeldet. Setz unter Konto ein Passwort, dann geht es auch in der installierten App.');
@@ -368,38 +373,75 @@ function entryRow(e) {
     h('span', { class: 'when num' }, `${fmtDate(e.at)} ${fmtTime(e.at)}`));
 }
 
-/** After sign-in: join the household with its code and pick a display name. */
+/** Join a household by its slug, or create one with a slug you choose. Also used to switch. */
 function viewJoin() {
-  const code = h('input', { type: 'text', id: 'jc', autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false' });
-  const name = h('input', { type: 'text', id: 'jn', autocomplete: 'given-name', maxlength: '40' });
+  const switching = !!S.home;
+  let mode = 'join'; // 'join' | 'create'
+  const code = h('input', { type: 'text', id: 'jc', autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false', placeholder: 'z. B. wg-goethestrasse' });
+  const name = h('input', { type: 'text', id: 'jn', autocomplete: 'given-name', maxlength: '40', value: myName() });
+  const codeLabel = h('label', { for: 'jc' });
+  const hint = h('div', { class: 'hint' });
   const err = h('div', { class: 'error', role: 'alert' });
-  const btn = h('button', { type: 'submit', class: 'btn primary block' }, 'Beitreten');
+  const btn = h('button', { type: 'submit', class: 'btn primary block' });
+  const seg = h('div', { class: 'seg' });
+  function setMode(m) {
+    mode = m;
+    err.textContent = '';
+    codeLabel.textContent = m === 'join' ? 'Code des Haushalts' : 'Code für den neuen Haushalt';
+    hint.textContent = m === 'join'
+      ? 'Den Code bekommst du von jemandem aus dem Haushalt (Einstellungen → Haushalt).'
+      : 'Kleinbuchstaben, Ziffern und Bindestriche, 3–40 Zeichen. Wer den Code kennt, kann beitreten.';
+    btn.textContent = m === 'join' ? 'Beitreten' : 'Anlegen und beitreten';
+    seg.replaceChildren(
+      h('a', { href: '#', class: m === 'join' ? 'on' : '', onclick: (e) => { e.preventDefault(); setMode('join'); } }, 'Beitreten'),
+      h('a', { href: '#', class: m === 'create' ? 'on' : '', onclick: (e) => { e.preventDefault(); setMode('create'); } }, 'Neu anlegen'));
+  }
+  code.addEventListener('input', () => {
+    if (mode === 'create') {
+      code.value = code.value.toLowerCase()
+        .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+        .replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    }
+  });
   async function submit(e) {
     e.preventDefault();
     err.textContent = '';
-    if (!code.value.trim()) { err.textContent = 'Gib den Code des Haushalts ein.'; return; }
+    const slug = code.value.trim().toLowerCase();
+    if (!slug) { err.textContent = 'Gib einen Code ein.'; return; }
+    if (mode === 'create' && !/^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/.test(slug)) { err.textContent = 'Nur a–z, 0–9 und Bindestriche, 3–40 Zeichen, nicht mit Bindestrich anfangen oder enden.'; return; }
     if (!name.value.trim()) { err.textContent = 'Gib deinen Namen ein.'; return; }
     btn.disabled = true;
     try {
-      await Backend.joinHome(code.value, name.value);
+      if (mode === 'join') await Backend.joinHome(slug, name.value);
+      else await Backend.createHome(slug, name.value);
       await refresh();
       location.hash = '#/log';
       render();
-      toast(`Willkommen im Haushalt ${S.home.home.name}`);
+      toast(mode === 'join' ? `Willkommen im Haushalt ${S.home.home.name}` : `Haushalt ${S.home.home.name} angelegt. Teile den Code zum Beitreten.`);
     } catch (ex) {
-      err.textContent = !ex.status ? 'Keine Verbindung.' : /unknown home/.test(ex.message) ? 'Diesen Haushalt gibt es nicht. Prüfe den Code.' : ex.message;
+      err.textContent = !ex.status ? 'Keine Verbindung.'
+        : /unknown home/.test(ex.message) ? 'Diesen Haushalt gibt es nicht. Prüfe den Code.'
+        : /slug taken/.test(ex.message) ? 'Diesen Code gibt es schon. Wähle einen anderen, oder tritt bei.'
+        : /invalid slug/.test(ex.message) ? 'Ungültiger Code.'
+        : ex.message;
     } finally {
       btn.disabled = false;
     }
   }
+  setMode('join');
   return h('div', { class: 'signin' },
-    h('h1', {}, 'Haushalt beitreten'),
-    h('p', { class: 'muted' }, 'Alle im Haushalt sehen dieselben Aufgaben und wer wann was geputzt hat.'),
+    switching ? h('div', { class: 'topbar' },
+      h('button', { type: 'button', class: 'back', 'aria-label': 'Zurück', onclick: () => history.back() }, '‹'),
+      h('h1', {}, 'Haushalt wechseln')) : h('h1', {}, 'Dein Haushalt'),
+    h('p', { class: 'muted' }, switching
+      ? `Du bist gerade in ${S.home.home.name}. Deine bisherigen Einträge bleiben dort.`
+      : 'Alle im Haushalt sehen dieselben Aufgaben und wer wann was geputzt hat.'),
+    seg,
     h('form', { onsubmit: submit },
-      h('div', { class: 'field' }, h('label', { for: 'jc' }, 'Code des Haushalts'), code),
+      h('div', { class: 'field' }, codeLabel, code, hint),
       h('div', { class: 'field' }, h('label', { for: 'jn' }, 'Dein Name'), name),
       btn, err),
-    h('button', { type: 'button', class: 'linkish', onclick: async () => { await Backend.signOut(); render(); } }, 'Abmelden'));
+    switching ? null : h('button', { type: 'button', class: 'linkish', onclick: async () => { await Backend.signOut(); render(); } }, 'Abmelden'));
 }
 
 /** One tap per task logs it as done now. Recent entries below. */
@@ -764,12 +806,39 @@ function homePanel(ro) {
   } }, 'Speichern');
   return h('div', {},
     h('div', { class: 'panel' },
-      h('div', { class: 'small muted' }, 'Haushalt'),
-      h('div', {}, S.home.home.name),
+      h('div', { class: 'small muted' }, 'Haushalt · Code zum Beitreten'),
+      h('div', { class: 'row spread' }, h('span', { class: 'code' }, S.home.home.id),
+        h('button', { type: 'button', class: 'btn small', onclick: () => share(S.home.home.id) }, 'Teilen')),
       h('div', { class: 'small muted', style: 'margin-top:8px' }, 'Mitglieder'),
       h('div', {}, S.home.members.map((m) => m.name).join(', '))),
     h('div', { class: 'field' }, h('label', { for: 'hn' }, 'Dein Name im Haushalt'),
-      h('div', { class: 'row' }, h('div', { class: 'grow' }, name), save)));
+      h('div', { class: 'row' }, h('div', { class: 'grow' }, name), save)),
+    h('a', { class: 'linkish', href: '#/join' }, 'Anderem Haushalt beitreten oder neuen anlegen'));
+}
+
+/** Ask once for permission to show system notifications. */
+function notifyPanel() {
+  if (!('Notification' in window)) {
+    return h('p', { class: 'muted small' }, 'Dieser Browser kann keine Benachrichtigungen zeigen. Auf dem iPhone: App zum Home-Bildschirm hinzufügen.');
+  }
+  const state = Notification.permission;
+  if (state === 'granted') return h('p', { class: 'muted small' }, 'An. Du bekommst eine Nachricht, wenn jemand im Haushalt etwas erledigt oder beitritt, solange die App offen ist.');
+  if (state === 'denied') return h('p', { class: 'muted small' }, 'Blockiert. Erlaube Benachrichtigungen in den Browser-Einstellungen für diese Seite.');
+  return h('button', { type: 'button', class: 'btn block', onclick: async () => {
+    await Notification.requestPermission();
+    render({ keepScroll: true });
+  } }, 'Benachrichtigungen erlauben');
+}
+
+/** Share the join code: system share sheet on phones, else copy. */
+function share(slug) {
+  const url = location.origin + location.pathname;
+  const text = `Tritt meinem Haushalt im Putztagebuch bei: Code „${slug}“. ${url}`;
+  if (navigator.share) {
+    navigator.share({ title: 'Putztagebuch', text }).catch(() => { /* cancelled */ });
+    return;
+  }
+  navigator.clipboard.writeText(text).then(() => toast('Einladung kopiert'), () => toast(`Code: ${slug}`));
 }
 
 function viewSettings() {
@@ -800,6 +869,8 @@ function viewSettings() {
     h('p', { class: 'muted small' }, 'Gilt für den ganzen Haushalt. Die Uhren übernehmen die Liste beim nächsten Sync. Umbenennen ändert alte Einträge nicht.'),
     tasksEditor(draft, ro),
     h('div', { style: 'margin-top:16px' }, saveBtn), err,
+    h('h2', {}, 'Benachrichtigungen'),
+    notifyPanel(),
     h('h2', {}, 'Uhr'),
     devicesPanel(ro),
     h('h2', {}, 'Daten'),
@@ -813,6 +884,7 @@ function viewSettings() {
     h('div', { class: 'actions' },
       h('button', { type: 'button', class: 'btn danger', onclick: async () => {
         if (!confirm('Abmelden und die gespeicherten Daten von diesem Gerät entfernen? Deine Daten bleiben im Konto.')) return;
+        stopLiveUpdates();
         await Backend.signOut();
         for (const k of ['pt.cache.entries', 'pt.cache.home', 'pt.cache.time']) store.del(k);
         S.entries = []; S.home = null; S.lastSync = null;
@@ -824,6 +896,50 @@ function viewSettings() {
 }
 
 // ------------------------------------------------------------------ boot
+
+/** Tell about what others did since `before`: a toast, and a system
+ *  notification when the app is in the background and the user allowed it. */
+function announce(before) {
+  if (!S.home || S.home.home.id !== before.home) return;
+  const me = Backend.userId();
+  const msgs = [];
+  for (const e of S.entries) {
+    if (e.deleted || e.uid === me || before.entries.has(`${e.uid}/${e.id}`)) continue;
+    if (nowSec() - e.at > 3600) continue; // back-dated entries are no news
+    msgs.push(`${e.by || 'Jemand'}: ${e.task} erledigt`);
+  }
+  for (const m of S.home.members) {
+    if (m.user_id !== me && !before.members.has(m.user_id)) msgs.push(`${m.name} ist dem Haushalt beigetreten`);
+  }
+  if (!msgs.length) return;
+  toast(msgs.length === 1 ? msgs[0] : `${msgs[0]} (+${msgs.length - 1})`, { long: true });
+  if (document.visibilityState === 'hidden' && 'Notification' in window && Notification.permission === 'granted') {
+    const body = msgs.join('\n');
+    navigator.serviceWorker.ready
+      .then((reg) => reg.showNotification('Putztagebuch', { body, icon: 'icons/icon-192.png', tag: 'putz-live' }))
+      .catch(() => new Notification('Putztagebuch', { body }));
+  }
+}
+
+// Live updates: another member or a watch changed something. Refetch (small
+// data) a moment later, so a burst of changes means one reload; keep forms.
+let stopLive = null;
+let liveTimer = null;
+function startLive() {
+  if (stopLive || !Backend.signedIn()) return;
+  stopLive = Backend.live(() => {
+    clearTimeout(liveTimer);
+    liveTimer = setTimeout(async () => {
+      const before = { entries: new Set(S.entries.map((e) => `${e.uid}/${e.id}`)), members: new Set(S.home ? S.home.members.map((m) => m.user_id) : []), home: S.home && S.home.home.id };
+      await refresh();
+      if (!dirty) render({ keepScroll: true });
+      announce(before);
+    }, 400);
+  });
+}
+function stopLiveUpdates() {
+  if (stopLive) { stopLive(); stopLive = null; }
+}
 
 async function boot() {
   Backend.takeSessionFromUrl();
@@ -842,6 +958,7 @@ async function boot() {
   if (Backend.signedIn()) {
     await refresh();
     if (!dirty) render();
+    startLive();
   }
 }
 
