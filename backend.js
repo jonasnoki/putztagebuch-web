@@ -171,6 +171,21 @@ const Backend = {
     return rows[0];
   },
 
+  // ---- web push subscriptions (one per browser)
+
+  async savePushSubscription(sub) {
+    const j = sub.toJSON();
+    await this.request('/rest/v1/push_subscriptions?on_conflict=endpoint', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates' },
+      body: [{ endpoint: j.endpoint, user_id: this.userId(), p256dh: j.keys.p256dh, auth: j.keys.auth }],
+    });
+  },
+
+  async deletePushSubscription(endpoint) {
+    await this.request('/rest/v1/push_subscriptions?endpoint=eq.' + encodeURIComponent(endpoint), { method: 'DELETE' });
+  },
+
   // ---- live updates: Supabase Realtime over a WebSocket (Phoenix protocol, vsn 1.0.0)
 
   /** Calls onChange() whenever a readable row of entries/homes/home_members changes,

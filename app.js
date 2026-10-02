@@ -816,18 +816,58 @@ function homePanel(ro) {
     h('a', { class: 'linkish', href: '#/join' }, 'Anderem Haushalt beitreten oder neuen anlegen'));
 }
 
-/** Ask once for permission to show system notifications. */
+const b64ToBytes = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4)), (c) => c.charCodeAt(0));
+
+/** Push notifications: when someone in the household logs a task or joins,
+ *  also with the app closed. One subscription per browser. */
 function notifyPanel() {
-  if (!('Notification' in window)) {
-    return h('p', { class: 'muted small' }, 'Dieser Browser kann keine Benachrichtigungen zeigen. Auf dem iPhone: App zum Home-Bildschirm hinzufügen.');
+  const box = h('div');
+  const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window && PT.vapidKey;
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  async function current() {
+    const reg = await navigator.serviceWorker.ready;
+    return reg.pushManager.getSubscription();
   }
-  const state = Notification.permission;
-  if (state === 'granted') return h('p', { class: 'muted small' }, 'An. Du bekommst eine Nachricht, wenn jemand im Haushalt etwas erledigt oder beitritt, solange die App offen ist.');
-  if (state === 'denied') return h('p', { class: 'muted small' }, 'Blockiert. Erlaube Benachrichtigungen in den Browser-Einstellungen für diese Seite.');
-  return h('button', { type: 'button', class: 'btn block', onclick: async () => {
-    await Notification.requestPermission();
-    render({ keepScroll: true });
-  } }, 'Benachrichtigungen erlauben');
+  async function draw() {
+    if (!supported) {
+      box.replaceChildren(h('p', { class: 'muted small' }, /iPhone|iPad/.test(navigator.userAgent) && !standalone
+        ? 'Auf dem iPhone: erst „Zum Home-Bildschirm“ hinzufügen und die App von dort öffnen, dann geht es hier.'
+        : 'Dieser Browser kann keine Push-Benachrichtigungen.'));
+      return;
+    }
+    if (Notification.permission === 'denied') {
+      box.replaceChildren(h('p', { class: 'muted small' }, 'Blockiert. Erlaube Benachrichtigungen in den Einstellungen des Browsers für diese Seite.'));
+      return;
+    }
+    const sub = Notification.permission === 'granted' ? await current() : null;
+    const btn = h('button', { type: 'button', class: sub ? 'btn block' : 'btn primary block', disabled: !S.online }, sub ? 'Push auf diesem Gerät ausschalten' : 'Push auf diesem Gerät einschalten');
+    btn.onclick = async () => {
+      btn.disabled = true;
+      try {
+        if (sub) {
+          await Backend.deletePushSubscription(sub.endpoint);
+          await sub.unsubscribe();
+          toast('Push ausgeschaltet');
+        } else {
+          if (await Notification.requestPermission() !== 'granted') { draw(); return; }
+          const reg = await navigator.serviceWorker.ready;
+          const s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(PT.vapidKey) });
+          await Backend.savePushSubscription(s);
+          toast('Push an');
+        }
+      } catch (e) {
+        toast(e.status ? e.message : `Ging nicht: ${e.message || e}`);
+      }
+      draw();
+    };
+    box.replaceChildren(
+      h('p', { class: 'muted small' }, sub
+        ? 'An. Du bekommst eine Nachricht, wenn jemand anderes im Haushalt etwas erledigt oder beitritt, auch wenn die App zu ist.'
+        : 'Bekomm eine Nachricht, wenn jemand anderes im Haushalt etwas erledigt oder beitritt, auch wenn die App zu ist.'),
+      btn);
+  }
+  draw();
+  return box;
 }
 
 /** Share the join code: system share sheet on phones, else copy. */
@@ -885,6 +925,10 @@ function viewSettings() {
       h('button', { type: 'button', class: 'btn danger', onclick: async () => {
         if (!confirm('Abmelden und die gespeicherten Daten von diesem Gerät entfernen? Deine Daten bleiben im Konto.')) return;
         stopLiveUpdates();
+        try {
+          const sub = 'serviceWorker' in navigator && await (await navigator.serviceWorker.ready).pushManager.getSubscription();
+          if (sub) { await Backend.deletePushSubscription(sub.endpoint); await sub.unsubscribe(); }
+        } catch (e) { /* not supported or offline */ }
         await Backend.signOut();
         for (const k of ['pt.cache.entries', 'pt.cache.home', 'pt.cache.time']) store.del(k);
         S.entries = []; S.home = null; S.lastSync = null;
@@ -959,7 +1003,17 @@ async function boot() {
     await refresh();
     if (!dirty) render();
     startLive();
+    resavePush();
   }
+}
+
+/** Re-register this browser's push subscription for the signed-in user. */
+async function resavePush() {
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || Notification.permission !== 'granted') return;
+    const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
+    if (sub) await Backend.savePushSubscription(sub);
+  } catch (e) { /* offline: next start */ }
 }
 
 window.addEventListener('online', () => { if (Backend.signedIn()) refresh().then(() => { if (!dirty) render(); }); });

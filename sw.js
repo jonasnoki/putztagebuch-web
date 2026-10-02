@@ -1,6 +1,6 @@
 /* putztagebuch service worker: cache the app shell. Data comes from Supabase;
  * the app keeps its own offline copy in localStorage. */
-const VERSION = 'putz-v5';
+const VERSION = 'putz-v6';
 const SHELL = [
   './', 'index.html', 'config.js', 'backend.js', 'app.js', 'style.css', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
@@ -39,4 +39,22 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   // Only the app's own files; API calls always go to the network.
   if (new URL(req.url).origin === self.location.origin) e.respondWith(shellFirst(req));
+});
+
+// Web Push from the notify function: { title, body, tag }.
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (err) { d = { title: 'Putztagebuch', body: e.data && e.data.text() }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'Putztagebuch', {
+    body: d.body || '', tag: d.tag, renotify: !!d.tag, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png',
+  }));
+});
+
+// Tap on a notification: focus the open app, or open it.
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+    for (const c of list) if ('focus' in c) return c.focus();
+    return self.clients.openWindow('./#/log');
+  }));
 });
