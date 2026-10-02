@@ -953,7 +953,7 @@ function announce(before) {
   for (const e of S.entries) {
     if (e.deleted || e.uid === me || before.entries.has(`${e.uid}/${e.id}`)) continue;
     if (nowSec() - e.at > 3600) continue; // back-dated entries are no news
-    msgs.push(`${e.by || 'Jemand'}: ${e.task} erledigt`);
+    msgs.push(`${e.by || 'Jemand'} hat ${e.task} erledigt`);
   }
   for (const m of S.home.members) {
     if (m.user_id !== me && !before.members.has(m.user_id)) msgs.push(`${m.name} ist dem Haushalt beigetreten`);
