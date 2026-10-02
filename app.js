@@ -155,7 +155,7 @@ function upsertLocal(e) {
   store.set('pt.cache.entries', S.entries);
 }
 
-const homeTasks = () => S.home && S.home.home.data && S.home.home.data.tasks;
+const homeTasks = () => S.home && S.home.home.data && (S.home.home.data.tasks || []).filter((t) => t && t.name);
 const tasks = () => (homeTasks() && homeTasks().length ? homeTasks() : DEFAULT_TASKS);
 const myName = () => {
   const me = S.home && S.home.members.find((m) => m.user_id === Backend.userId());
@@ -515,6 +515,9 @@ function weekStart(sec) {
   return Math.floor(d.getTime() / 1000);
 }
 
+// A fixed tooltip would float away from its cell on scroll: hide it.
+window.addEventListener('scroll', () => { for (const t of document.querySelectorAll('.tip')) t.hidden = true; }, { passive: true, capture: true });
+
 /** Task × week grid: how often each task was done per week, last 12 weeks. */
 function weekGrid(list) {
   const ts = tasks();
@@ -542,7 +545,8 @@ function weekGrid(list) {
   const box = h('div', { class: 'chart' });
   const svg = s('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `Wie oft pro Woche, letzte ${WEEKS} Wochen` });
   starts.forEach((st, i) => {
-    if (i % 2 === 0 || i === WEEKS - 1) {
+    // Every second week, counted back from this week, so labels never collide.
+    if ((WEEKS - 1 - i) % 2 === 0) {
       svg.append(s('text', { x: labelW + i * (cell + gap) + cell / 2, y: 12, 'text-anchor': 'middle', class: 'mono' }, fmtShortDate(st).replace('.', '')));
     }
   });
@@ -556,9 +560,13 @@ function weekGrid(list) {
       const rect = s('rect', { x, y, width: cell, height: cell, rx: 4, class: `cell c${Math.min(n, 3)}`, tabindex: '0' });
       const show = () => {
         tip.replaceChildren(`${t.name} · Woche ab ${fmtShortDate(st)}: ${n === 0 ? 'nicht' : n === 1 ? 'einmal' : `${n}×`}`);
-        tip.style.left = `${((x + cell / 2) / W) * 100}%`;
-        tip.style.top = `${(y / H) * 100}%`;
         tip.hidden = false;
+        // Fixed to the viewport: the scroll box does not clip it, and it stays on screen.
+        const r = rect.getBoundingClientRect();
+        const half = tip.offsetWidth / 2;
+        const cx = Math.min(Math.max(r.left + r.width / 2, half + 8), window.innerWidth - half - 8);
+        tip.style.left = `${cx}px`;
+        tip.style.top = `${r.top}px`;
       };
       rect.addEventListener('pointerenter', show);
       rect.addEventListener('focus', show);

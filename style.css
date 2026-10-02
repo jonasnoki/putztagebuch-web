@@ -218,7 +218,7 @@ details summary { cursor: pointer; color: var(--muted); font-size: .88rem; paddi
 .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .82rem; color: var(--muted); align-items: center; margin-top: 10px; }
 .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
 .tip {
-  position: absolute; pointer-events: none; z-index: 2;
+  position: fixed; pointer-events: none; z-index: 50;
   background: var(--text); color: var(--surface);
   font-size: .8rem; line-height: 1.4; padding: 6px 9px; border-radius: 6px; white-space: nowrap;
   transform: translate(-50%, calc(-100% - 6px));
