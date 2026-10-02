@@ -693,7 +693,7 @@ let boardPeriod = store.get('pt.boardPeriod', 'week');
 /** Rangliste section: members ranked by tasks done in the period (switches in place). */
 function boardSection() {
   const box = h('section', { class: 'board-section' });
-  const draw = () => box.replaceChildren(...boardContent(boardPeriod, (k) => { boardPeriod = k; store.set('pt.boardPeriod', k); draw(); }));
+  const draw = () => box.replaceChildren(...boardContent(boardPeriod, (k) => { boardPeriod = k; store.set('pt.boardPeriod', k); draw(); }).filter(Boolean));
   draw();
   return box;
 }
@@ -797,12 +797,14 @@ function viewShopping() {
   function draw() {
     const open = S.shopping.filter((x) => !x.done).sort((a, b) => a.created_at.localeCompare(b.created_at));
     const done = S.shopping.filter((x) => x.done).sort((a, b) => (b.done_at || '').localeCompare(a.done_at || ''));
-    list.replaceChildren(
+    // replaceChildren() would print null as text: drop the empty parts.
+    list.replaceChildren(...[
       open.length ? h('ul', { class: 'shop' }, open.map(row)) : h('div', { class: 'empty' }, 'Alles da.'),
       done.length ? h('div', { class: 'row spread shop-done-head' },
         h('h2', {}, `Im Wagen (${done.length})`),
         h('button', { type: 'button', class: 'linkish', disabled: ro, onclick: clearDone }, 'Leeren')) : null,
-      done.length ? h('ul', { class: 'shop' }, done.map(row)) : null);
+      done.length ? h('ul', { class: 'shop' }, done.map(row)) : null,
+    ].filter(Boolean));
   }
   draw();
   shopDraw = draw;
