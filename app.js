@@ -234,8 +234,16 @@ function render({ keepScroll = false } = {}) {
     case 'settings': content = viewSettings(); break;
     default: content = viewLog();
   }
-  view.replaceChildren(content);
-  if (keepScroll) window.scrollTo(0, y);
+  if (keepScroll) {
+    // Hold the old height while swapping, so the page does not shrink and jump
+    // (on iOS that also misplaces the fixed tab bar).
+    view.style.minHeight = `${view.offsetHeight}px`;
+    view.replaceChildren(content);
+    if (window.scrollY !== y) window.scrollTo(0, y);
+    requestAnimationFrame(() => { view.style.minHeight = ''; });
+  } else {
+    view.replaceChildren(content);
+  }
 }
 
 window.addEventListener('hashchange', render);

@@ -108,6 +108,8 @@ h2 { font-size: 1.25rem; line-height: 1.25; margin: 28px 0 10px; }
 /* tab bar */
 .tabs {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  /* own layer: iOS home-screen apps otherwise paint it at a stale spot while scrolling */
+  transform: translateZ(0); will-change: transform;
   display: flex; background: var(--surface); border-top: 1px solid var(--border);
   padding-bottom: env(safe-area-inset-bottom);
 }
@@ -302,3 +304,10 @@ details summary { cursor: pointer; color: var(--muted); font-size: .88rem; paddi
 .shop-del { min-width: 44px; min-height: 44px; border: 0; background: none; color: var(--faint); font-size: 1.3rem; cursor: pointer; }
 .shop-done-head { margin-top: 20px; }
 .shop-done-head h2 { margin: 0; font-size: 1.05rem; }
+
+/* status bar cover (iOS home-screen app draws over the page) */
+body::before {
+  content: ""; position: fixed; top: 0; left: 0; right: 0; z-index: 35;
+  height: env(safe-area-inset-top); background: var(--bg);
+  transform: translateZ(0);
+}
