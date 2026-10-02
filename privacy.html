@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Putztagebuch – Datenschutz</title>
+  <meta name="color-scheme" content="dark light">
+  <style>
+    :root { --bg: #f4f6f5; --text: #13201d; --muted: #56645f; --accent: #0f7461; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #101716; --text: #e6eeeb; --muted: #9aaba6; --accent: #4fcfb0; } }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { max-width: 680px; margin: 0 auto; padding: 32px 16px 64px; }
+    h1 { font-family: Georgia, serif; font-size: 1.8rem; }
+    h2 { font-family: Georgia, serif; font-size: 1.2rem; margin-top: 28px; }
+    a { color: var(--accent); }
+    .muted { color: var(--muted); font-size: .9rem; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Putztagebuch – Datenschutz</h1>
+  <p class="muted">Stand: 3. Oktober 2026 · <a href="#en">English below</a></p>
+
+  <h2>Welche Daten</h2>
+  <p>Putztagebuch speichert nur, was du selbst einträgst: welche Aufgabe du wann erledigt hast, deine Aufgabenliste und die E-Mail-Adresse deines Kontos. Die Uhr-App liest keine Gesundheits-, Standort- oder Sensordaten.</p>
+
+  <h2>Wo</h2>
+  <p>Die Einträge liegen auf der Uhr und in einer Datenbank bei Supabase (Rechenzentrum in Irland, EU). Die Uhr überträgt sie über die Garmin Connect App auf deinem Handy. Zugriff hat nur dein Konto; die Uhr ist über einen Gerätecode verbunden, von dem nur ein Hash gespeichert wird.</p>
+
+  <h2>Wofür</h2>
+  <p>Nur damit Uhr und Web-App dieselben Einträge zeigen. Keine Werbung, keine Analyse, keine Weitergabe an Dritte.</p>
+
+  <h2>Löschen</h2>
+  <p>Einträge kannst du in der App löschen. Für das Löschen des ganzen Kontos schreib an <a href="mailto:jonasnoackgruen@gmail.com">jonasnoackgruen@gmail.com</a>.</p>
+
+  <h2 id="en">English</h2>
+  <p>Putztagebuch stores only what you enter: which task you did and when, your task list, and your account email. The watch app reads no health, location or sensor data. Entries are stored on the watch and in a Supabase database (Ireland, EU), synced through the Garmin Connect phone app, and are visible only to your account. They are used only to keep the watch and the web app in sync: no ads, no analytics, no sharing with third parties. You can delete entries in the app; to delete your account, email <a href="mailto:jonasnoackgruen@gmail.com">jonasnoackgruen@gmail.com</a>.</p>
+</main>
+</body>
+</html>
