@@ -171,6 +171,34 @@ const Backend = {
     return rows[0];
   },
 
+  // ---- shopping list (household)
+
+  async listShopping() {
+    return this.request('/rest/v1/shopping_items?select=id,text,done,created_at,done_at&order=created_at');
+  },
+
+  async addShopping(text) {
+    const rows = await this.request('/rest/v1/shopping_items', {
+      method: 'POST', headers: { Prefer: 'return=representation' }, body: { text },
+    });
+    return rows[0];
+  },
+
+  async setShoppingDone(id, done) {
+    await this.request('/rest/v1/shopping_items?id=eq.' + encodeURIComponent(id), {
+      method: 'PATCH', body: { done, done_at: done ? new Date().toISOString() : null },
+    });
+  },
+
+  async deleteShopping(id) {
+    await this.request('/rest/v1/shopping_items?id=eq.' + encodeURIComponent(id), { method: 'DELETE' });
+  },
+
+  async deleteShoppingItems(ids) {
+    if (!ids.length) return;
+    await this.request('/rest/v1/shopping_items?id=in.(' + ids.map(encodeURIComponent).join(',') + ')', { method: 'DELETE' });
+  },
+
   // ---- web push subscriptions (one per browser)
 
   async savePushSubscription(sub) {
@@ -201,7 +229,7 @@ const Backend = {
       ws.onopen = () => {
         retry = 1000;
         send({ topic, event: 'phx_join', payload: {
-          config: { broadcast: { self: false }, presence: { key: '' }, postgres_changes: ['entries', 'homes', 'home_members'].map((table) => ({ event: '*', schema: 'public', table })) },
+          config: { broadcast: { self: false }, presence: { key: '' }, postgres_changes: ['entries', 'homes', 'home_members', 'shopping_items'].map((table) => ({ event: '*', schema: 'public', table })) },
           access_token: this.session.access_token,
         } });
         beat = setInterval(async () => {

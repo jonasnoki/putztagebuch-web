@@ -285,3 +285,20 @@ details summary { cursor: pointer; color: var(--muted); font-size: .88rem; paddi
 .board .count { font-size: 1.15rem; font-weight: 500; }
 .board .track { height: 8px; background: var(--band); border-radius: 4px; overflow: hidden; margin: 8px 0 6px; }
 .board .fill { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+
+/* history: leaderboard on top; period switch is buttons */
+.seg button { flex: 1; text-align: center; padding: 10px 6px; border-radius: 9px; color: var(--muted); background: none; border: 0; font-weight: 600; font-size: .9rem; cursor: pointer; }
+.seg button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.board-section { margin-bottom: 8px; }
+
+/* shopping list */
+.shop-add { margin: 4px 0 16px; }
+.shop { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.shop-item { display: flex; align-items: center; min-height: 52px; padding: 0 4px 0 14px; border-bottom: 1px solid var(--border); }
+.shop-item:last-child { border-bottom: 0; }
+.shop-item label { display: flex; align-items: center; gap: 12px; min-height: 52px; cursor: pointer; }
+.shop-item input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); flex: none; }
+.shop-item.done span { color: var(--muted); text-decoration: line-through; }
+.shop-del { min-width: 44px; min-height: 44px; border: 0; background: none; color: var(--faint); font-size: 1.3rem; cursor: pointer; }
+.shop-done-head { margin-top: 20px; }
+.shop-done-head h2 { margin: 0; font-size: 1.05rem; }

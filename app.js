@@ -109,6 +109,7 @@ function toast(msg, action) {
 
 const S = {
   entries: store.get('pt.cache.entries', []), // includes tombstones
+  shopping: store.get('pt.cache.shopping', []),
   home: store.get('pt.cache.home', null), // { home: {id, name, data}, members: [...] }; null = not joined
   online: true,
   loaded: false,
@@ -129,7 +130,9 @@ function setOnline(on) {
 async function refresh() {
   if (!Backend.signedIn()) return;
   try {
-    const [list, home] = await Promise.all([Backend.listEntries(), Backend.getHome()]);
+    const [list, home, shopping] = await Promise.all([Backend.listEntries(), Backend.getHome(), Backend.listShopping()]);
+    S.shopping = shopping || [];
+    store.set('pt.cache.shopping', S.shopping);
     S.entries = list || [];
     S.home = home;
     S.lastSync = nowSec();
@@ -218,14 +221,15 @@ function render({ keepScroll = false } = {}) {
     return;
   }
   tabs.hidden = false;
-  const tab = r.name === 'entry' || r.name === 'new' ? 'log' : r.name;
+  const tab = r.name === 'entry' || r.name === 'new' ? 'log' : r.name === 'board' ? 'history' : r.name;
   for (const a of tabs.querySelectorAll('a')) a.classList.toggle('active', a.dataset.tab === tab);
   let content;
   switch (r.name) {
     case 'entry': content = viewEdit(Number(r.arg)); break;
     case 'new': content = viewEdit(null, r.arg ? decodeURIComponent(r.arg) : null); break;
     case 'history': content = viewHistory(); break;
-    case 'board': content = viewBoard(r.arg); break;
+    case 'board': content = viewHistory(); break;
+    case 'shop': content = viewShopping(); break;
     case 'join': tabs.hidden = true; content = viewJoin(); break;
     case 'settings': content = viewSettings(); break;
     default: content = viewLog();
@@ -650,6 +654,7 @@ function viewHistory() {
 
   return h('div', { class: 'stats' },
     h('h1', {}, 'Verlauf'),
+    boardSection(),
     h('h2', {}, `Letzte ${WEEKS} Wochen`),
     weekGrid(list),
     h('h2', {}, 'Pro Aufgabe'),
@@ -675,8 +680,18 @@ function periodStart(key) {
   return 0;
 }
 
+let boardPeriod = store.get('pt.boardPeriod', 'week');
+
+/** Rangliste section: members ranked by tasks done in the period (switches in place). */
+function boardSection() {
+  const box = h('section', { class: 'board-section' });
+  const draw = () => box.replaceChildren(...boardContent(boardPeriod, (k) => { boardPeriod = k; store.set('pt.boardPeriod', k); draw(); }));
+  draw();
+  return box;
+}
+
 /** Members ranked by tasks done in the period; members with none are listed too. */
-function viewBoard(period) {
+function boardContent(period, choose) {
   const key = PERIODS.some((p) => p.key === period) ? period : 'week';
   const since = periodStart(key);
   const done = visibleEntries().filter((e) => e.at >= since);
@@ -705,12 +720,91 @@ function viewBoard(period) {
         top.length ? h('div', { class: 'small muted' }, top.map(([t, n]) => `${t} ${n}×`).join(' · ')) : null));
   }));
 
-  return h('div', { class: 'narrow' },
-    h('h1', {}, 'Rangliste'),
+  return [
+    h('h2', {}, 'Rangliste'),
     h('div', { class: 'seg', role: 'tablist' }, PERIODS.map((p) =>
-      h('a', { href: `#/board/${p.key}`, role: 'tab', 'aria-selected': String(p.key === key), class: p.key === key ? 'on' : '' }, p.label))),
+      h('button', { type: 'button', role: 'tab', 'aria-selected': String(p.key === key), class: p.key === key ? 'on' : '', onclick: () => choose(p.key) }, p.label))),
     done.length ? list : h('div', { class: 'empty' }, 'In diesem Zeitraum hat noch niemand geputzt.'),
-    done.length ? h('p', { class: 'hint' }, `${done.length} erledigte Aufgaben insgesamt. Jede Aufgabe zählt einmal.`) : null);
+    done.length ? h('p', { class: 'hint' }, `${done.length} erledigte Aufgaben. Jede Aufgabe zählt einmal.`) : null,
+  ];
+}
+
+// ------------------------------------------------------------------ shopping list
+
+/** Einkaufszettel: the household's shared list. Tap to tick off; ticked items
+ *  stay below until someone clears them. Changes show live for everyone. */
+let shopDraw = null; // redraws the open shopping list in place
+
+function viewShopping() {
+  const ro = !S.online;
+  const input = h('input', { type: 'text', id: 'si', placeholder: 'Was fehlt?', autocomplete: 'off', enterkeyhint: 'done', maxlength: '200', disabled: ro });
+  const save = () => store.set('pt.cache.shopping', S.shopping);
+  const byId = (id) => S.shopping.find((x) => x.id === id);
+  const fail = (e) => { toast(e.status ? e.message : 'Nicht gespeichert: Server nicht erreichbar'); refresh().then(() => render({ keepScroll: true })); };
+
+  async function add(e) {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    const tmp = { id: `tmp-${Date.now()}`, text, done: false, created_at: new Date().toISOString() };
+    S.shopping.push(tmp);
+    draw();
+    input.focus();
+    try {
+      const row = await Backend.addShopping(text);
+      // A live refresh may already have brought the row; else swap the placeholder.
+      S.shopping = S.shopping.filter((x) => x.id !== tmp.id);
+      if (!byId(row.id)) S.shopping.push(row);
+      draw();
+      save();
+    } catch (ex) { fail(ex); }
+  }
+  async function toggle(old) {
+    const item = byId(old.id) || old;
+    item.done = !item.done;
+    item.done_at = item.done ? new Date().toISOString() : null;
+    draw();
+    try { await Backend.setShoppingDone(item.id, item.done); save(); } catch (ex) { fail(ex); }
+  }
+  async function remove(item) {
+    S.shopping = S.shopping.filter((x) => x.id !== item.id);
+    draw();
+    try { await Backend.deleteShopping(item.id); save(); } catch (ex) { fail(ex); }
+  }
+  async function clearDone() {
+    const ids = S.shopping.filter((x) => x.done).map((x) => x.id);
+    S.shopping = S.shopping.filter((x) => !x.done);
+    draw();
+    try { await Backend.deleteShoppingItems(ids); save(); } catch (ex) { fail(ex); }
+  }
+
+  const row = (item) => h('li', { class: 'shop-item' + (item.done ? ' done' : '') },
+    h('label', { class: 'grow' },
+      h('input', { type: 'checkbox', checked: item.done, disabled: ro, onchange: () => toggle(item) }),
+      h('span', {}, item.text)),
+    h('button', { type: 'button', class: 'shop-del', 'aria-label': `${item.text} löschen`, disabled: ro, onclick: () => remove(item) }, '×'));
+
+  const list = h('div');
+  function draw() {
+    const open = S.shopping.filter((x) => !x.done).sort((a, b) => a.created_at.localeCompare(b.created_at));
+    const done = S.shopping.filter((x) => x.done).sort((a, b) => (b.done_at || '').localeCompare(a.done_at || ''));
+    list.replaceChildren(
+      open.length ? h('ul', { class: 'shop' }, open.map(row)) : h('div', { class: 'empty' }, 'Alles da.'),
+      done.length ? h('div', { class: 'row spread shop-done-head' },
+        h('h2', {}, `Im Wagen (${done.length})`),
+        h('button', { type: 'button', class: 'linkish', disabled: ro, onclick: clearDone }, 'Leeren')) : null,
+      done.length ? h('ul', { class: 'shop' }, done.map(row)) : null);
+  }
+  draw();
+  shopDraw = draw;
+
+  return h('div', { class: 'narrow' },
+    h('h1', {}, 'Einkaufszettel'),
+    h('form', { class: 'row shop-add', onsubmit: add },
+      h('div', { class: 'grow' }, input),
+      h('button', { type: 'submit', class: 'btn primary', disabled: ro }, 'Dazu')),
+    list);
 }
 
 // ------------------------------------------------------------------ settings
@@ -931,8 +1025,8 @@ function viewSettings() {
           if (sub) { await Backend.deletePushSubscription(sub.endpoint); await sub.unsubscribe(); }
         } catch (e) { /* not supported or offline */ }
         await Backend.signOut();
-        for (const k of ['pt.cache.entries', 'pt.cache.home', 'pt.cache.time']) store.del(k);
-        S.entries = []; S.home = null; S.lastSync = null;
+        for (const k of ['pt.cache.entries', 'pt.cache.home', 'pt.cache.shopping', 'pt.cache.time']) store.del(k);
+        S.entries = []; S.home = null; S.shopping = []; S.lastSync = null;
         setOnline(true);
         location.hash = '#/setup';
         render();
@@ -971,6 +1065,13 @@ function announce(before) {
 
 // Live updates: another member or a watch changed something. Refetch (small
 // data) a moment later, so a burst of changes means one reload; keep forms.
+/** Redraw after new data (not a page change). The shopping list redraws
+ *  only its items, so typing there is never interrupted; forms wait (dirty). */
+function rerender() {
+  if (route().name === 'shop' && shopDraw && document.getElementById('si')) shopDraw();
+  else if (!dirty) render({ keepScroll: true });
+}
+
 let stopLive = null;
 let liveTimer = null;
 function startLive() {
@@ -980,7 +1081,7 @@ function startLive() {
     liveTimer = setTimeout(async () => {
       const before = { entries: new Set(S.entries.map((e) => `${e.uid}/${e.id}`)), members: new Set(S.home ? S.home.members.map((m) => m.user_id) : []), home: S.home && S.home.home.id };
       await refresh();
-      if (!dirty) render({ keepScroll: true });
+      rerender();
       announce(before);
     }, 400);
   });
@@ -1005,7 +1106,7 @@ async function boot() {
   render();
   if (Backend.signedIn()) {
     await refresh();
-    if (!dirty) render();
+    rerender();
     startLive();
     resavePush();
   }
@@ -1021,9 +1122,9 @@ async function resavePush() {
   } catch (e) { /* offline: next start */ }
 }
 
-window.addEventListener('online', () => { if (Backend.signedIn()) refresh().then(() => { if (!dirty) render(); }); });
+window.addEventListener('online', () => { if (Backend.signedIn()) refresh().then(rerender); });
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && Backend.signedIn() && !dirty) refresh().then(() => { if (!dirty) render(); });
+  if (document.visibilityState === 'visible' && Backend.signedIn()) refresh().then(rerender);
 });
 
 boot();
