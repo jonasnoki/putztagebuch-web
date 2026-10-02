@@ -10,6 +10,10 @@ class ApiError extends Error {
 
 const SESSION_KEY = 'pt.session';
 
+/** UI language as set by app.js (<html lang>): 'de' or 'en'. */
+const uiLang = () => ((document.documentElement.lang || 'de').slice(0, 2) === 'en' ? 'en' : 'de');
+const tr = (de, en) => (uiLang() === 'en' ? en : de);
+
 const Backend = {
   session: (() => { try { return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch (e) { return null; } })(),
 
@@ -40,7 +44,7 @@ const Backend = {
         body: body !== undefined ? JSON.stringify(body) : undefined,
       });
     } catch (e) {
-      throw new ApiError('Server nicht erreichbar', 0);
+      throw new ApiError(tr('Server nicht erreichbar', 'Server not reachable'), 0);
     } finally {
       clearTimeout(timer);
     }
@@ -48,7 +52,7 @@ const Backend = {
       let detail = '';
       try { const j = await res.json(); detail = j.msg || j.message || j.error_description || j.error || ''; } catch (e) { /* not JSON */ }
       if (res.status === 401 && auth) this.saveSession(null);
-      throw new ApiError(detail || `Serverfehler ${res.status}`, res.status);
+      throw new ApiError(detail || tr(`Serverfehler ${res.status}`, `Server error ${res.status}`), res.status);
     }
     const text = await res.text();
     return text ? JSON.parse(text) : null;
@@ -98,7 +102,7 @@ const Backend = {
 
   async freshToken() {
     const s = this.session;
-    if (!s) throw new ApiError('Nicht angemeldet', 401);
+    if (!s) throw new ApiError(tr('Nicht angemeldet', 'Not signed in'), 401);
     if (s.expires_at - 60 > Date.now() / 1000) return;
     const n = await this.request('/auth/v1/token?grant_type=refresh_token', {
       method: 'POST', auth: false, body: { refresh_token: s.refresh_token },
@@ -128,7 +132,7 @@ const Backend = {
         headers: { Prefer: 'return=representation' },
         body: { data, updated_at: data.updatedAt },
       });
-      if (!rows.length) throw new ApiError('Eintrag nicht gefunden', 404);
+      if (!rows.length) throw new ApiError(tr('Eintrag nicht gefunden', 'Entry not found'), 404);
       return rows[0].data;
     }
     const rows = await this.request('/rest/v1/entries?on_conflict=user_id,id', {
@@ -159,7 +163,7 @@ const Backend = {
   },
 
   async createHome(slug, name) {
-    return this.request('/rest/v1/rpc/create_home', { method: 'POST', body: { p_slug: slug, p_name: name } });
+    return this.request('/rest/v1/rpc/create_home', { method: 'POST', body: { p_slug: slug, p_name: name, p_lang: uiLang() } });
   },
 
   async putHomeData(id, data) {
@@ -206,7 +210,7 @@ const Backend = {
     await this.request('/rest/v1/push_subscriptions?on_conflict=endpoint', {
       method: 'POST',
       headers: { Prefer: 'resolution=merge-duplicates' },
-      body: [{ endpoint: j.endpoint, user_id: this.userId(), p256dh: j.keys.p256dh, auth: j.keys.auth }],
+      body: [{ endpoint: j.endpoint, user_id: this.userId(), p256dh: j.keys.p256dh, auth: j.keys.auth, lang: uiLang() }],
     });
   },
 
