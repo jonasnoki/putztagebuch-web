@@ -13,7 +13,6 @@ const DEFAULT_TASKS = [
   { name: 'Bad putzen', desc: '' },
   { name: 'Pflanzen gießen', desc: '' },
 ];
-const DEFAULT_SETTINGS = { tasks: DEFAULT_TASKS };
 
 const store = {
   get(key, fallback) {
@@ -110,7 +109,7 @@ function toast(msg, action) {
 
 const S = {
   entries: store.get('pt.cache.entries', []), // includes tombstones
-  settings: store.get('pt.cache.settings', DEFAULT_SETTINGS),
+  home: store.get('pt.cache.home', null), // { home: {id, name, data}, members: [...] }; null = not joined
   online: true,
   loaded: false,
   lastSync: store.get('pt.cache.time', null),
@@ -130,12 +129,12 @@ function setOnline(on) {
 async function refresh() {
   if (!Backend.signedIn()) return;
   try {
-    const [list, settings] = await Promise.all([Backend.listEntries(), Backend.getSettings()]);
+    const [list, home] = await Promise.all([Backend.listEntries(), Backend.getHome()]);
     S.entries = list || [];
-    S.settings = { ...DEFAULT_SETTINGS, ...(settings || {}) };
+    S.home = home;
     S.lastSync = nowSec();
     store.set('pt.cache.entries', S.entries);
-    store.set('pt.cache.settings', S.settings);
+    store.set('pt.cache.home', S.home);
     store.set('pt.cache.time', S.lastSync);
     setOnline(true);
   } catch (e) {
@@ -156,15 +155,25 @@ function upsertLocal(e) {
   store.set('pt.cache.entries', S.entries);
 }
 
-const tasks = () => (S.settings.tasks && S.settings.tasks.length ? S.settings.tasks : DEFAULT_TASKS);
+const homeTasks = () => S.home && S.home.home.data && S.home.home.data.tasks;
+const tasks = () => (homeTasks() && homeTasks().length ? homeTasks() : DEFAULT_TASKS);
+const myName = () => {
+  const me = S.home && S.home.members.find((m) => m.user_id === Backend.userId());
+  return me ? me.name : '';
+};
 const visibleEntries = () => S.entries.filter((e) => !e.deleted).sort((a, b) => (b.at - a.at) || (b.id - a.id));
 
 /** Latest "at" per task name. */
 function lastDone() {
+  return Object.fromEntries(Object.entries(lastEntry()).map(([k, e]) => [k, e.at]));
+}
+
+/** Latest entry per task name. */
+function lastEntry() {
   const out = {};
   for (const e of S.entries) {
     if (e.deleted) continue;
-    if (out[e.task] == null || e.at > out[e.task]) out[e.task] = e.at;
+    if (out[e.task] == null || e.at > out[e.task].at) out[e.task] = e;
   }
   return out;
 }
@@ -199,6 +208,11 @@ function render() {
   if (!Backend.signedIn() || r.name === 'setup') {
     tabs.hidden = true;
     view.replaceChildren(viewSetup());
+    return;
+  }
+  if (S.loaded && S.online && !S.home) {
+    tabs.hidden = true;
+    view.replaceChildren(viewJoin());
     return;
   }
   tabs.hidden = false;
@@ -349,14 +363,49 @@ function passwordPanel(ro) {
 
 function entryRow(e) {
   return h('a', { class: 'entry', href: `#/entry/${e.id}` },
-    h('span', { class: 'grow' }, e.task),
+    h('span', { class: 'grow' }, e.task, e.by ? h('span', { class: 'by' }, e.by) : null),
     h('span', { class: 'when num' }, `${fmtDate(e.at)} ${fmtTime(e.at)}`));
+}
+
+/** After sign-in: join the household with its code and pick a display name. */
+function viewJoin() {
+  const code = h('input', { type: 'text', id: 'jc', autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false' });
+  const name = h('input', { type: 'text', id: 'jn', autocomplete: 'given-name', maxlength: '40' });
+  const err = h('div', { class: 'error', role: 'alert' });
+  const btn = h('button', { type: 'submit', class: 'btn primary block' }, 'Beitreten');
+  async function submit(e) {
+    e.preventDefault();
+    err.textContent = '';
+    if (!code.value.trim()) { err.textContent = 'Gib den Code des Haushalts ein.'; return; }
+    if (!name.value.trim()) { err.textContent = 'Gib deinen Namen ein.'; return; }
+    btn.disabled = true;
+    try {
+      await Backend.joinHome(code.value, name.value);
+      await refresh();
+      location.hash = '#/log';
+      render();
+      toast(`Willkommen im Haushalt ${S.home.home.name}`);
+    } catch (ex) {
+      err.textContent = !ex.status ? 'Keine Verbindung.' : /unknown home/.test(ex.message) ? 'Diesen Haushalt gibt es nicht. Prüfe den Code.' : ex.message;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  return h('div', { class: 'signin' },
+    h('h1', {}, 'Haushalt beitreten'),
+    h('p', { class: 'muted' }, 'Alle im Haushalt sehen dieselben Aufgaben und wer wann was geputzt hat.'),
+    h('form', { onsubmit: submit },
+      h('div', { class: 'field' }, h('label', { for: 'jc' }, 'Code des Haushalts'), code),
+      h('div', { class: 'field' }, h('label', { for: 'jn' }, 'Dein Name'), name),
+      btn, err),
+    h('button', { type: 'button', class: 'linkish', onclick: async () => { await Backend.signOut(); render(); } }, 'Abmelden'));
 }
 
 /** One tap per task logs it as done now. Recent entries below. */
 function viewLog() {
   const ro = !S.online;
   const last = lastDone();
+  const lastBy = Object.fromEntries(Object.entries(lastEntry()).map(([k, e]) => [k, e.by]));
   const grid = h('div', { class: 'tasks' });
   for (const t of tasks()) {
     const btn = h('button', { type: 'button', class: 'task', disabled: ro, onclick: async () => {
@@ -379,7 +428,7 @@ function viewLog() {
     } },
       h('span', { class: 'name' }, t.name),
       t.desc ? h('span', { class: 'desc' }, t.desc) : null,
-      h('span', { class: 'last' }, fmtAgo(last[t.name])));
+      h('span', { class: 'last' }, fmtAgo(last[t.name]), lastBy[t.name] ? ` · ${lastBy[t.name]}` : ''));
     grid.append(btn);
   }
 
@@ -584,8 +633,8 @@ const csvCell = (v) => (v == null ? '' : /[",\n;]/.test(String(v)) ? `"${String(
 
 /** CSV of all entries, made in the browser from the loaded data. */
 function exportCsv() {
-  const rows = visibleEntries().slice().reverse().map((e) => [e.id, toLocalInput(e.at).replace('T', ' '), e.task]);
-  const text = [['id', 'zeit', 'aufgabe'], ...rows].map((r) => r.map(csvCell).join(',')).join('\n') + '\n';
+  const rows = visibleEntries().slice().reverse().map((e) => [e.id, toLocalInput(e.at).replace('T', ' '), e.task, e.by]);
+  const text = [['id', 'zeit', 'aufgabe', 'wer'], ...rows].map((r) => r.map(csvCell).join(',')).join('\n') + '\n';
   const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
   const link = h('a', { href: url, download: `putztagebuch-${dayKey(nowSec())}.csv` });
   document.body.append(link);
@@ -636,6 +685,32 @@ function devicesPanel(ro) {
   return h('div', {}, list, h('div', { style: 'margin-top:8px' }, btn), out);
 }
 
+/** Household name, members, and your own display name. */
+function homePanel(ro) {
+  const name = h('input', { type: 'text', id: 'hn', value: myName(), maxlength: '40', disabled: ro });
+  const save = h('button', { type: 'button', class: 'btn small', disabled: ro, onclick: async () => {
+    if (!name.value.trim()) return;
+    save.disabled = true;
+    try {
+      await Backend.joinHome(S.home.home.id, name.value);
+      await refresh();
+      toast('Name gespeichert. Neue Einträge zeigen ihn.');
+      render();
+    } catch (e) {
+      toast(e.status ? e.message : 'Braucht eine Verbindung');
+      save.disabled = false;
+    }
+  } }, 'Speichern');
+  return h('div', {},
+    h('div', { class: 'panel' },
+      h('div', { class: 'small muted' }, 'Haushalt'),
+      h('div', {}, S.home.home.name),
+      h('div', { class: 'small muted', style: 'margin-top:8px' }, 'Mitglieder'),
+      h('div', {}, S.home.members.map((m) => m.name).join(', '))),
+    h('div', { class: 'field' }, h('label', { for: 'hn' }, 'Dein Name im Haushalt'),
+      h('div', { class: 'row' }, h('div', { class: 'grow' }, name), save)));
+}
+
 function viewSettings() {
   const ro = !S.online;
   const draft = tasks().map((t) => ({ ...t }));
@@ -648,8 +723,8 @@ function viewSettings() {
     if (new Set(names).size !== names.length) { err.textContent = 'Jeder Name nur einmal.'; return; }
     saveBtn.disabled = true;
     try {
-      S.settings = { ...DEFAULT_SETTINGS, ...(await Backend.putSettings({ ...S.settings, tasks: clean })) };
-      store.set('pt.cache.settings', S.settings);
+      S.home.home = await Backend.putHomeData(S.home.home.id, { ...S.home.home.data, tasks: clean });
+      store.set('pt.cache.home', S.home);
       toast('Aufgaben gespeichert');
       render();
     } catch (e) {
@@ -661,7 +736,7 @@ function viewSettings() {
   return h('div', { class: 'narrow' },
     h('h1', {}, 'Einstellungen'),
     h('h2', {}, 'Aufgaben'),
-    h('p', { class: 'muted small' }, 'Die Uhr übernimmt diese Liste beim nächsten Sync. Umbenennen ändert alte Einträge nicht.'),
+    h('p', { class: 'muted small' }, 'Gilt für den ganzen Haushalt. Die Uhren übernehmen die Liste beim nächsten Sync. Umbenennen ändert alte Einträge nicht.'),
     tasksEditor(draft, ro),
     h('div', { style: 'margin-top:16px' }, saveBtn), err,
     h('h2', {}, 'Uhr'),
@@ -669,6 +744,8 @@ function viewSettings() {
     h('h2', {}, 'Daten'),
     h('button', { type: 'button', class: 'btn block', onclick: exportCsv }, 'CSV exportieren'),
     h('div', { class: 'hint' }, S.lastSync ? `Zuletzt geladen ${fmtDate(S.lastSync)} ${fmtTime(S.lastSync)}.` : ''),
+    h('h2', {}, 'Haushalt'),
+    homePanel(ro),
     h('h2', {}, 'Konto'),
     h('div', { class: 'panel' }, h('div', { class: 'small muted' }, 'Angemeldet als'), h('div', {}, Backend.email() || '')),
     h('details', { class: 'pwbox' }, h('summary', {}, 'Passwort setzen oder ändern'), passwordPanel(ro)),
@@ -676,8 +753,8 @@ function viewSettings() {
       h('button', { type: 'button', class: 'btn danger', onclick: async () => {
         if (!confirm('Abmelden und die gespeicherten Daten von diesem Gerät entfernen? Deine Daten bleiben im Konto.')) return;
         await Backend.signOut();
-        for (const k of ['pt.cache.entries', 'pt.cache.settings', 'pt.cache.time']) store.del(k);
-        S.entries = []; S.settings = DEFAULT_SETTINGS; S.lastSync = null;
+        for (const k of ['pt.cache.entries', 'pt.cache.home', 'pt.cache.time']) store.del(k);
+        S.entries = []; S.home = null; S.lastSync = null;
         setOnline(true);
         location.hash = '#/setup';
         render();

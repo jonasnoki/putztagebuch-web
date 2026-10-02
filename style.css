@@ -265,3 +265,6 @@ details summary { cursor: pointer; color: var(--muted); font-size: .88rem; paddi
   .tasks { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
   .stats { max-width: 860px; }
 }
+
+/* who did it */
+.entry .by { color: var(--muted); font-size: .85rem; margin-left: 8px; }

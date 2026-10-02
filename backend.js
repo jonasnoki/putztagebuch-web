@@ -119,8 +119,18 @@ const Backend = {
     return rows.map((r) => r.data);
   },
 
+  /** New entries and own entries upsert; another member's entry is patched in place. */
   async putEntry(e) {
     const data = { ...e, updatedAt: Math.max(e.updatedAt || 0, Math.floor(Date.now() / 1000)) };
+    if (e.uid && e.uid !== this.userId()) {
+      const rows = await this.request(`/rest/v1/entries?user_id=eq.${encodeURIComponent(e.uid)}&id=eq.${e.id}`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=representation' },
+        body: { data, updated_at: data.updatedAt },
+      });
+      if (!rows.length) throw new ApiError('Eintrag nicht gefunden', 404);
+      return rows[0].data;
+    }
     const rows = await this.request('/rest/v1/entries?on_conflict=user_id,id', {
       method: 'POST',
       headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
@@ -133,20 +143,28 @@ const Backend = {
     return this.putEntry({ ...e, deleted: true });
   },
 
-  // ---- settings (the task list)
+  // ---- home (household): shared entries and task list
 
-  async getSettings() {
-    const rows = await this.request('/rest/v1/settings?select=data');
-    return rows.length ? rows[0].data : null;
+  /** { home: {id, name, data}, members: [{user_id, name}] }, or null before joining. */
+  async getHome() {
+    const [homes, members] = await Promise.all([
+      this.request('/rest/v1/homes?select=id,name,data'),
+      this.request('/rest/v1/home_members?select=user_id,name&order=joined_at'),
+    ]);
+    return homes.length ? { home: homes[0], members } : null;
   },
 
-  async putSettings(data) {
-    const rows = await this.request('/rest/v1/settings?on_conflict=user_id', {
-      method: 'POST',
-      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
-      body: [{ user_id: this.userId(), data }],
+  async joinHome(code, name) {
+    return this.request('/rest/v1/rpc/join_home', { method: 'POST', body: { p_code: code, p_name: name } });
+  },
+
+  async putHomeData(id, data) {
+    const rows = await this.request('/rest/v1/homes?id=eq.' + encodeURIComponent(id), {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: { data },
     });
-    return rows[0].data;
+    return rows[0];
   },
 
   // ---- devices (watches): the code is shown once, only its hash is stored
