@@ -1105,6 +1105,18 @@ function share(slug) {
   navigator.clipboard.writeText(text).then(() => toast(L('Einladung kopiert', 'Invitation copied')), () => toast(`Code: ${slug}`));
 }
 
+/** "Version putz-v20": the service worker cache this page runs from. */
+function appVersionLine() {
+  const el = h('p', { class: 'hint version' });
+  if ('caches' in window) {
+    caches.keys().then((keys) => {
+      const v = keys.filter((k) => k.startsWith('putz-')).sort((a, b) => Number(b.split('-v')[1]) - Number(a.split('-v')[1]))[0];
+      if (v) el.textContent = `${L('Version', 'Version')} ${v.replace('putz-', '')}`;
+    }).catch(() => {});
+  }
+  return el;
+}
+
 function viewSettings() {
   const ro = !S.online;
   const draft = tasks().map((t) => ({ ...t }));
@@ -1168,7 +1180,8 @@ function viewSettings() {
         setOnline(true);
         location.hash = '#/setup';
         render();
-      } }, L('Abmelden', 'Sign out'))),
+      } }, L('Abmelden', 'Sign out'))),,
+    appVersionLine()
   );
 }
 
@@ -1345,7 +1358,11 @@ async function resavePush() {
 
 window.addEventListener('online', () => { if (Backend.signedIn()) refresh().then(rerender); });
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && Backend.signedIn()) refresh().then(rerender);
+  if (document.visibilityState !== 'visible') return;
+  // iOS resumes the old page instead of starting the app: look for a new
+  // version (a new service worker reloads the page via controllerchange).
+  if ('serviceWorker' in navigator) navigator.serviceWorker.getRegistration().then((reg) => reg && reg.update()).catch(() => {});
+  if (Backend.signedIn()) refresh().then(rerender);
 });
 
 boot();
