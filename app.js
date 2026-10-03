@@ -1010,6 +1010,7 @@ function notifyPanel() {
       return;
     }
     const sub = Notification.permission === 'granted' ? await current() : null;
+    pushActive = !!sub;
     const btn = h('button', { type: 'button', class: sub ? 'btn block' : 'btn primary block', disabled: !S.online },
       sub ? L('Push auf diesem Gerät ausschalten', 'Turn off push on this device') : L('Push auf diesem Gerät einschalten', 'Turn on push on this device'));
     btn.onclick = async () => {
@@ -1145,6 +1146,8 @@ function viewSettings() {
 
 // ------------------------------------------------------------------ boot
 
+let pushActive = false; // this browser gets push, so no in-app cards
+
 /** Per-device news choices (from the push settings; all on by default). */
 let newsPrefs = store.get('pt.newsPrefs', { notify_tasks: true, notify_shop_add: true, notify_shop_done: true });
 function setNewsPrefs(p) { newsPrefs = { ...newsPrefs, ...p }; store.set('pt.newsPrefs', newsPrefs); }
@@ -1206,6 +1209,9 @@ function notice({ title, body }, href) {
  *  (Push covers the closed app; iOS shows no push banner while the app is open.) */
 function announce(before) {
   if (!S.home || S.home.home.id !== before.home) return;
+  // With push on, the push is this device's notification (iOS shows it even
+  // with the app open, and Safari requires a visible notification per push).
+  if (pushActive) return;
   const me = Backend.userId();
   const nameOf = (uid) => (S.home.members.find((m) => m.user_id === uid) || {}).name || L('Jemand', 'Someone');
   const tasks = [];
@@ -1289,6 +1295,7 @@ async function resavePush() {
   try {
     if (!('serviceWorker' in navigator) || !('PushManager' in window) || Notification.permission !== 'granted') return;
     const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
+    pushActive = !!sub;
     if (sub) {
       await Backend.savePushSubscription(sub);
       const p = await Backend.getPushPrefs(sub.endpoint);
