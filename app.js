@@ -1105,10 +1105,12 @@ function share(slug) {
   navigator.clipboard.writeText(text).then(() => toast(L('Einladung kopiert', 'Invitation copied')), () => toast(`Code: ${slug}`));
 }
 
-/** "Version 1.0.0" (web/version.js; the commit stays internal). */
-function appVersionLine() {
+/** "Über" panel with the version, the same as gcluster (the commit stays internal). */
+function aboutPanel() {
   const v = window.PT_VERSION || {};
-  return h('p', { class: 'hint version' }, v.version ? `${L('Version', 'Version')} ${v.version}` : '');
+  return h('div', { class: 'panel' },
+    h('div', { class: 'small muted' }, L('Version', 'Version')),
+    h('div', { class: 'num' }, v.version || '?'));
 }
 
 function viewSettings() {
@@ -1157,6 +1159,8 @@ function viewSettings() {
       langBtn('auto', L('Automatisch', 'Automatic')),
       langBtn('de', 'Deutsch'),
       langBtn('en', 'English')),
+    h('h2', {}, L('Über', 'About')),
+    aboutPanel(),
     h('h2', {}, L('Konto', 'Account')),
     h('div', { class: 'panel' }, h('div', { class: 'small muted' }, L('Angemeldet als', 'Signed in as')), h('div', {}, Backend.email() || '')),
     h('details', { class: 'pwbox' }, h('summary', {}, L('Passwort setzen oder ändern', 'Set or change password')), passwordPanel(ro)),
@@ -1174,8 +1178,7 @@ function viewSettings() {
         setOnline(true);
         location.hash = '#/setup';
         render();
-      } }, L('Abmelden', 'Sign out'))),
-    appVersionLine()
+      } }, L('Abmelden', 'Sign out')))
   );
 }
 
@@ -1290,6 +1293,19 @@ function checkForUpdate() {
   navigator.serviceWorker.getRegistration().then((reg) => reg && reg.update()).catch(() => {});
 }
 
+/** Without Realtime (signed out, socket down): compare the deployed
+ *  version.js with this page's, the same as gcluster. */
+async function pollVersion() {
+  try {
+    const text = await (await fetch(`version.js?t=${Date.now()}`, { cache: 'no-store' })).text();
+    const id = (t) => [(t.match(/version: '([^']*)'/) || [])[1], (t.match(/rev: '([^']*)'/) || [])[1]].join('/');
+    const v = window.PT_VERSION || {};
+    if (!(text.match(/rev: '([^']*)'/) || [])[1] || id(text) === `${v.version}/${v.rev}`) return;
+    checkForUpdate();
+  } catch (e) { /* offline: try again later */ }
+}
+setInterval(() => { if (document.visibilityState === 'visible') pollVersion(); }, 60000);
+
 /** Redraw after new data (not a page change). The shopping list redraws
  *  only its items, so typing there is never interrupted; forms wait (dirty). */
 function rerender() {
@@ -1367,7 +1383,8 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   // iOS resumes the old page instead of starting the app: look for a new
   // version (a new service worker reloads the page via controllerchange).
-  if ('serviceWorker' in navigator) navigator.serviceWorker.getRegistration().then((reg) => reg && reg.update()).catch(() => {});
+  pollVersion();
+  checkForUpdate();
   if (Backend.signedIn()) refresh().then(rerender);
 });
 

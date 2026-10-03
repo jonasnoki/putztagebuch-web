@@ -2,7 +2,7 @@
  * the app keeps its own offline copy in localStorage. */
 // Set by scripts/deploy-web.sh to putz-<version>-<commit>, so each deploy
 // gets a new cache and the browser installs the new service worker.
-const VERSION = 'putz-1.0.0-51f0557';
+const VERSION = 'putz-1.0.1-b5925ba';
 const SHELL = [
   './', 'index.html', 'version.js', 'config.js', 'backend.js', 'app.js', 'style.css', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
@@ -40,6 +40,8 @@ async function shellFirst(req) {
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
+  // Update checks ask the network on purpose (version.js?t=…, cache: no-store).
+  if (req.cache === 'no-store') return;
   // Only the app's own files; API calls always go to the network.
   if (new URL(req.url).origin === self.location.origin) e.respondWith(shellFirst(req));
 });

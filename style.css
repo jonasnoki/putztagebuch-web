@@ -368,4 +368,3 @@ body::before {
 }
 .expand.open { transform: rotate(90deg); }
 .switch.partial { background: color-mix(in srgb, var(--accent) 55%, var(--border)); }
-.version { text-align: center; margin-top: 24px; }
