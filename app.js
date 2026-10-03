@@ -1180,7 +1180,7 @@ function viewSettings() {
         setOnline(true);
         location.hash = '#/setup';
         render();
-      } }, L('Abmelden', 'Sign out'))),,
+      } }, L('Abmelden', 'Sign out'))),
     appVersionLine()
   );
 }
