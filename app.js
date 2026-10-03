@@ -1063,14 +1063,14 @@ function notifyPanel() {
       const keys = items.map((i) => i[0]);
       const on = keys.filter((k) => prefs[k]).length;
       const head = h('div', { class: 'switch-row' },
-        items.length > 1 ? h('button', { type: 'button', class: 'expand' + (openGroups.has(id) ? ' open' : ''), 'aria-expanded': String(openGroups.has(id)), 'aria-label': L('Einzeln einstellen', 'Choose individually'),
-          onclick: () => { if (openGroups.has(id)) openGroups.delete(id); else openGroups.add(id); drawGroups(); } }, '›') : null,
+        h('button', { type: 'button', class: 'expand' + (openGroups.has(id) ? ' open' : ''), 'aria-expanded': String(openGroups.has(id)), 'aria-label': L('Einzeln einstellen', 'Choose individually'),
+          onclick: () => { if (openGroups.has(id)) openGroups.delete(id); else openGroups.add(id); drawGroups(); } }, '›'),
         h('span', { class: 'grow' }, h('span', { class: 'who' }, label),
           h('span', { class: 'small muted block' }, items.length > 1 && on > 0 && on < keys.length ? L(`${on} von ${keys.length} an`, `${on} of ${keys.length} on`) : hint)),
         sw(on > 0, (e) => save(Object.fromEntries(keys.map((k) => [k, e.target.checked]))), label));
       if (on > 0 && on < keys.length) head.querySelector('.switch').classList.add('partial');
       return h('div', { class: 'switch-group' }, head,
-        items.length > 1 && openGroups.has(id) ? h('div', { class: 'switch-subs' }, items.map(([k, l, hh]) => item(k, l, hh))) : null);
+        openGroups.has(id) ? h('div', { class: 'switch-subs' }, items.map(([k, l, hh]) => item(k, l, hh))) : null);
     };
     const groups = h('div', { class: 'panel switches' });
     function drawGroups() {
@@ -1080,7 +1080,7 @@ function notifyPanel() {
           ['notify_config', L('Aufgabenliste geändert', 'Task list changed'), L('Wenn jemand Aufgaben hinzufügt, umbenennt oder entfernt', 'When someone adds, renames or removes tasks')],
         ]),
         group('tasks', L('Aufgaben', 'Tasks'), L('Wenn jemand etwas erledigt', 'When someone does a task'), [
-          ['notify_tasks', L('Aufgaben', 'Tasks')],
+          ['notify_tasks', L('Erledigt', 'Done'), L('Wenn jemand eine Aufgabe abhakt', 'When someone ticks off a task')],
         ]),
         group('shop', L('Einkauf', 'Shopping'), L('Gesammelt nach 5 ruhigen Minuten', 'Bundled after 5 quiet minutes'), [
           ['notify_shop_add', L('Neue Sachen', 'New items'), L('Wenn jemand etwas auf den Einkaufszettel setzt', 'When someone adds something to the shopping list')],
