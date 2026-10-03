@@ -1288,6 +1288,14 @@ function announce(before) {
 
 // Live updates: another member or a watch changed something. Refetch (small
 // data) a moment later, so a burst of changes means one reload; keep forms.
+/** A new web app version was deployed: fetch the service worker; if it is
+ *  new, it takes over and the page reloads (controllerchange), unless a form
+ *  is open — then it reloads once the form is done. */
+function checkForUpdate() {
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.getRegistration().then((reg) => reg && reg.update()).catch(() => {});
+}
+
 /** Redraw after new data (not a page change). The shopping list redraws
  *  only its items, so typing there is never interrupted; forms wait (dirty). */
 function rerender() {
@@ -1299,7 +1307,8 @@ let stopLive = null;
 let liveTimer = null;
 function startLive() {
   if (stopLive || !Backend.signedIn()) return;
-  stopLive = Backend.live(() => {
+  stopLive = Backend.live((what) => {
+    if (what === 'version') { checkForUpdate(); return; }
     clearTimeout(liveTimer);
     liveTimer = setTimeout(async () => {
       const before = {
@@ -1327,7 +1336,10 @@ async function boot() {
     // unless a form is open. Not on the first install, when nothing controlled the page.
     const hadController = !!navigator.serviceWorker.controller;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (hadController && !dirty) location.reload();
+      if (!hadController) return;
+      if (!dirty) { location.reload(); return; }
+      // A form is open: reload as soon as it is saved or left.
+      const wait = setInterval(() => { if (!dirty) { clearInterval(wait); location.reload(); } }, 2000);
     });
     navigator.serviceWorker.register('sw.js')
       .then((reg) => reg.update())

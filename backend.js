@@ -243,7 +243,7 @@ const Backend = {
       ws.onopen = () => {
         retry = 1000;
         send({ topic, event: 'phx_join', payload: {
-          config: { broadcast: { self: false }, presence: { key: '' }, postgres_changes: ['entries', 'homes', 'home_members', 'shopping_items'].map((table) => ({ event: '*', schema: 'public', table })) },
+          config: { broadcast: { self: false }, presence: { key: '' }, postgres_changes: ['entries', 'homes', 'home_members', 'shopping_items', 'app_meta'].map((table) => ({ event: '*', schema: 'public', table })) },
           access_token: this.session.access_token,
         } });
         beat = setInterval(async () => {
@@ -261,7 +261,10 @@ const Backend = {
         try { m = JSON.parse(ev.data); } catch (e) { return; }
         if (m.topic !== topic) return;
         if (m.event === 'phx_reply' && m.payload && m.payload.status === 'ok' && m.payload.response && m.payload.response.postgres_changes) onChange('joined');
-        else if (m.event === 'postgres_changes') onChange('change');
+        else if (m.event === 'postgres_changes') {
+          const table = m.payload && m.payload.data && m.payload.data.table;
+          onChange(table === 'app_meta' ? 'version' : 'change');
+        }
       };
       ws.onclose = () => {
         clearInterval(beat);
