@@ -1075,12 +1075,12 @@ function notifyPanel() {
     const groups = h('div', { class: 'panel switches' });
     function drawGroups() {
       groups.replaceChildren(
-        group('general', L('Allgemein', 'General'), L('Neue Mitglieder, geänderte Aufgabenliste', 'New members, changed task list'), [
+        group('general', L('Allgemein', 'General'), L('Wenn jemand dem Haushalt beitritt', 'When someone joins the household'), [
           ['notify_join', L('Neue Mitglieder', 'New members'), L('Wenn jemand dem Haushalt beitritt', 'When someone joins the household')],
-          ['notify_config', L('Aufgabenliste geändert', 'Task list changed'), L('Wenn jemand Aufgaben hinzufügt, umbenennt oder entfernt', 'When someone adds, renames or removes tasks')],
         ]),
-        group('tasks', L('Aufgaben', 'Tasks'), L('Wenn jemand etwas erledigt', 'When someone does a task'), [
+        group('tasks', L('Aufgaben', 'Tasks'), L('Erledigt, geänderte Aufgabenliste', 'Done, changed task list'), [
           ['notify_tasks', L('Erledigt', 'Done'), L('Wenn jemand eine Aufgabe abhakt', 'When someone ticks off a task')],
+          ['notify_config', L('Aufgabenliste geändert', 'Task list changed'), L('Wenn jemand Aufgaben hinzufügt, umbenennt oder entfernt', 'When someone adds, renames or removes tasks')],
         ]),
         group('shop', L('Einkauf', 'Shopping'), L('Gesammelt nach 5 ruhigen Minuten', 'Bundled after 5 quiet minutes'), [
           ['notify_shop_add', L('Neue Sachen', 'New items'), L('Wenn jemand etwas auf den Einkaufszettel setzt', 'When someone adds something to the shopping list')],
