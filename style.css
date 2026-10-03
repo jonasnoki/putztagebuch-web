@@ -355,3 +355,16 @@ body::before {
 .notice-body { color: var(--muted); font-size: .9rem; line-height: 1.35; white-space: pre-line; }
 .notice-x { flex: none; min-width: 36px; min-height: 36px; border: 0; background: none; color: var(--faint); font-size: 1.2rem; cursor: pointer; }
 @media (min-width: 960px) { .notices { left: 220px; align-items: flex-end; padding-right: 24px; } }
+
+/* grouped notification switches */
+.switch-group { border-bottom: 1px solid var(--border); }
+.switch-group:last-child { border-bottom: 0; }
+.switch-group .switch-row { border-bottom: 0; }
+.switch-subs { padding: 0 0 8px 36px; }
+.switch-row.sub { min-height: 52px; }
+.expand {
+  flex: none; width: 28px; height: 28px; margin-left: -6px; border: 0; background: none; cursor: pointer;
+  color: var(--muted); font-size: 1.4rem; line-height: 1; transition: transform .15s ease;
+}
+.expand.open { transform: rotate(90deg); }
+.switch.partial { background: color-mix(in srgb, var(--accent) 55%, var(--border)); }

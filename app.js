@@ -1039,29 +1039,56 @@ function notifyPanel() {
         btn);
       return;
     }
-    // Per device: which kinds of news.
-    let prefs = { notify_tasks: true, notify_shop_add: true, notify_shop_done: true };
-    try { prefs = (await Backend.getPushPrefs(sub.endpoint)) || prefs; setNewsPrefs(prefs); } catch (e) { /* offline: show defaults */ }
-    const toggle = (key, label, hint) => h('label', { class: 'switch-row' },
-      h('span', { class: 'grow' }, h('span', { class: 'who' }, label), h('span', { class: 'small muted block' }, hint)),
-      h('input', { type: 'checkbox', class: 'switch', checked: prefs[key], disabled: !S.online, onchange: async (e) => {
-        try {
-          await Backend.setPushPrefs(sub.endpoint, { [key]: e.target.checked });
-          prefs[key] = e.target.checked;
-          setNewsPrefs({ [key]: e.target.checked });
-        } catch (ex) {
-          e.target.checked = prefs[key];
-          toast(ex.status ? ex.message : L('Braucht eine Verbindung', 'Needs a connection'));
-        }
-      } }));
-    box.replaceChildren(
-      h('div', { class: 'panel switches' },
-        toggle('notify_tasks', L('Aufgaben', 'Tasks'), L('Wenn jemand etwas erledigt oder dem Haushalt beitritt', 'When someone does a task or joins the household')),
-        toggle('notify_shop_add', L('Einkauf: neue Sachen', 'Shopping: new items'), L('Wenn jemand etwas auf den Einkaufszettel setzt', 'When someone adds something to the shopping list')),
-        toggle('notify_shop_done', L('Einkauf: eingekauft', 'Shopping: bought'), L('Wenn jemand etwas abhakt', 'When someone ticks something off')),
-        h('p', { class: 'small muted' }, L('Einkauf kommt gesammelt, wenn 5 Minuten lang niemand mehr etwas am Zettel geändert hat.',
-          'Shopping news comes bundled, once nobody has changed the list for 5 minutes.'))),
-      btn);
+    // Per device: which kinds of news, in groups. A group's main switch turns
+    // all its items on or off; the arrow opens the group for single items.
+    let prefs = { ...NEWS_DEFAULTS };
+    try { prefs = { ...prefs, ...((await Backend.getPushPrefs(sub.endpoint)) || {}) }; setNewsPrefs(prefs); } catch (e) { /* offline: show defaults */ }
+    async function save(changes) {
+      const old = { ...prefs };
+      Object.assign(prefs, changes);
+      try {
+        await Backend.setPushPrefs(sub.endpoint, changes);
+        setNewsPrefs(changes);
+      } catch (ex) {
+        Object.assign(prefs, old);
+        toast(ex.status ? ex.message : L('Braucht eine Verbindung', 'Needs a connection'));
+      }
+      drawGroups();
+    }
+    const sw = (checked, onchange, label) => h('input', { type: 'checkbox', class: 'switch', checked, disabled: !S.online, 'aria-label': label, onchange });
+    const item = (key, label, hint) => h('label', { class: 'switch-row sub' },
+      h('span', { class: 'grow' }, h('span', {}, label), hint ? h('span', { class: 'small muted block' }, hint) : null),
+      sw(prefs[key], (e) => save({ [key]: e.target.checked }), label));
+    const group = (id, label, hint, items) => {
+      const keys = items.map((i) => i[0]);
+      const on = keys.filter((k) => prefs[k]).length;
+      const head = h('div', { class: 'switch-row' },
+        items.length > 1 ? h('button', { type: 'button', class: 'expand' + (openGroups.has(id) ? ' open' : ''), 'aria-expanded': String(openGroups.has(id)), 'aria-label': L('Einzeln einstellen', 'Choose individually'),
+          onclick: () => { if (openGroups.has(id)) openGroups.delete(id); else openGroups.add(id); drawGroups(); } }, '›') : null,
+        h('span', { class: 'grow' }, h('span', { class: 'who' }, label),
+          h('span', { class: 'small muted block' }, items.length > 1 && on > 0 && on < keys.length ? L(`${on} von ${keys.length} an`, `${on} of ${keys.length} on`) : hint)),
+        sw(on > 0, (e) => save(Object.fromEntries(keys.map((k) => [k, e.target.checked]))), label));
+      if (on > 0 && on < keys.length) head.querySelector('.switch').classList.add('partial');
+      return h('div', { class: 'switch-group' }, head,
+        items.length > 1 && openGroups.has(id) ? h('div', { class: 'switch-subs' }, items.map(([k, l, hh]) => item(k, l, hh))) : null);
+    };
+    const groups = h('div', { class: 'panel switches' });
+    function drawGroups() {
+      groups.replaceChildren(
+        group('general', L('Allgemein', 'General'), L('Neue Mitglieder, geänderte Aufgabenliste', 'New members, changed task list'), [
+          ['notify_join', L('Neue Mitglieder', 'New members'), L('Wenn jemand dem Haushalt beitritt', 'When someone joins the household')],
+          ['notify_config', L('Aufgabenliste geändert', 'Task list changed'), L('Wenn jemand Aufgaben hinzufügt, umbenennt oder entfernt', 'When someone adds, renames or removes tasks')],
+        ]),
+        group('tasks', L('Aufgaben', 'Tasks'), L('Wenn jemand etwas erledigt', 'When someone does a task'), [
+          ['notify_tasks', L('Aufgaben', 'Tasks')],
+        ]),
+        group('shop', L('Einkauf', 'Shopping'), L('Gesammelt nach 5 ruhigen Minuten', 'Bundled after 5 quiet minutes'), [
+          ['notify_shop_add', L('Neue Sachen', 'New items'), L('Wenn jemand etwas auf den Einkaufszettel setzt', 'When someone adds something to the shopping list')],
+          ['notify_shop_done', L('Eingekauft', 'Bought'), L('Wenn jemand etwas abhakt', 'When someone ticks something off')],
+        ]));
+    }
+    drawGroups();
+    box.replaceChildren(groups, btn);
   }
   draw();
   return box;
@@ -1090,6 +1117,7 @@ function viewSettings() {
     if (new Set(names).size !== names.length) { err.textContent = L('Jeder Name nur einmal.', 'Each name only once.'); return; }
     saveBtn.disabled = true;
     try {
+      ownTasksSavedAt = Date.now();
       S.home.home = await Backend.putHomeData(S.home.home.id, { ...S.home.home.data, tasks: clean });
       store.set('pt.cache.home', S.home);
       toast(L('Aufgaben gespeichert', 'Tasks saved'));
@@ -1146,10 +1174,13 @@ function viewSettings() {
 
 // ------------------------------------------------------------------ boot
 
+let ownTasksSavedAt = 0; // our own task list save is no news
 let pushActive = false; // this browser gets push, so no in-app cards
 
 /** Per-device news choices (from the push settings; all on by default). */
-let newsPrefs = store.get('pt.newsPrefs', { notify_tasks: true, notify_shop_add: true, notify_shop_done: true });
+const NEWS_DEFAULTS = { notify_join: true, notify_config: true, notify_tasks: true, notify_shop_add: true, notify_shop_done: true };
+let newsPrefs = { ...NEWS_DEFAULTS, ...store.get('pt.newsPrefs', {}) };
+const openGroups = new Set(); // expanded notification groups in settings
 function setNewsPrefs(p) { newsPrefs = { ...newsPrefs, ...p }; store.set('pt.newsPrefs', newsPrefs); }
 
 /** Same wording as the push: one title, details in the body when there is more. */
@@ -1166,6 +1197,7 @@ function newsMessage(events) {
     const many = short && n > 1;
     const list = listJoin(g.what);
     if (g.kind === 'join') return L(`${g.who} ist dem Haushalt beigetreten`, `${g.who} joined the household`);
+    if (g.kind === 'config') return g.who ? L(`${g.who} hat die Aufgabenliste geändert`, `${g.who} changed the task list`) : L('Die Aufgabenliste wurde geändert', 'The task list was changed');
     if (g.kind === 'entry') {
       return many ? L(`${g.who} hat ${n} Aufgaben erledigt`, `${g.who} did ${n} tasks`)
         : L(`${g.who} hat ${list} erledigt`, `${g.who} did ${list}`);
@@ -1222,9 +1254,15 @@ function announce(before) {
       if (nowSec() - e.at > 3600) continue; // back-dated entries are no news
       tasks.push({ kind: 'entry', who: e.by || L('Jemand', 'Someone'), what: e.task });
     }
+  }
+  if (newsPrefs.notify_join) {
     for (const m of S.home.members) {
       if (m.user_id !== me && !before.members.has(m.user_id)) tasks.push({ kind: 'join', who: m.name });
     }
+  }
+  // Who changed the list is not known here; skip our own save.
+  if (newsPrefs.notify_config && JSON.stringify(homeTasks()) !== before.tasks && Date.now() - ownTasksSavedAt > 10000) {
+    tasks.push({ kind: 'config', who: '' });
   }
   for (const it of S.shopping) {
     const was = before.shopping.get(it.id);
@@ -1255,6 +1293,7 @@ function startLive() {
         entries: new Set(S.entries.map((e) => `${e.uid}/${e.id}`)),
         members: new Set(S.home ? S.home.members.map((m) => m.user_id) : []),
         shopping: new Map(S.shopping.map((x) => [x.id, { done: x.done }])),
+        tasks: JSON.stringify(homeTasks()),
         home: S.home && S.home.home.id,
       };
       await refresh();
