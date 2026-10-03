@@ -1,6 +1,6 @@
 /* putztagebuch service worker: cache the app shell. Data comes from Supabase;
  * the app keeps its own offline copy in localStorage. */
-const VERSION = 'putz-v22';
+const VERSION = 'putz-v23';
 const SHELL = [
   './', 'index.html', 'config.js', 'backend.js', 'app.js', 'style.css', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
@@ -15,7 +15,8 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
+      // Same origin as other apps (gcluster): only touch our own caches.
+      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('putz-') && k !== VERSION).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
