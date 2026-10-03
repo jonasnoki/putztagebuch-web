@@ -1,8 +1,10 @@
 /* putztagebuch service worker: cache the app shell. Data comes from Supabase;
  * the app keeps its own offline copy in localStorage. */
-const VERSION = 'putz-v27';
+// Set by scripts/deploy-web.sh to putz-<version>-<commit>, so each deploy
+// gets a new cache and the browser installs the new service worker.
+const VERSION = 'putz-1.0.0-51f0557';
 const SHELL = [
-  './', 'index.html', 'config.js', 'backend.js', 'app.js', 'style.css', 'manifest.webmanifest',
+  './', 'index.html', 'version.js', 'config.js', 'backend.js', 'app.js', 'style.css', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 

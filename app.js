@@ -1105,16 +1105,10 @@ function share(slug) {
   navigator.clipboard.writeText(text).then(() => toast(L('Einladung kopiert', 'Invitation copied')), () => toast(`Code: ${slug}`));
 }
 
-/** "Version putz-v20": the service worker cache this page runs from. */
+/** "Version 1.0.0" (web/version.js; the commit stays internal). */
 function appVersionLine() {
-  const el = h('p', { class: 'hint version' });
-  if ('caches' in window) {
-    caches.keys().then((keys) => {
-      const v = keys.filter((k) => k.startsWith('putz-')).sort((a, b) => Number(b.split('-v')[1]) - Number(a.split('-v')[1]))[0];
-      if (v) el.textContent = `${L('Version', 'Version')} ${v.replace('putz-', '')}`;
-    }).catch(() => {});
-  }
-  return el;
+  const v = window.PT_VERSION || {};
+  return h('p', { class: 'hint version' }, v.version ? `${L('Version', 'Version')} ${v.version}` : '');
 }
 
 function viewSettings() {
